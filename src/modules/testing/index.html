@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CognizApp Paystack Checkout</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #121826;
+      --muted: #5e6b80;
+      --line: #d9e1ec;
+      --accent: #0f766e;
+      --accent-dark: #0b5f59;
+      --danger: #b42318;
+      --ok: #067647;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 230px;
+    }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    .brand span,
+    .hint,
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .status-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #f8fafc;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 24px auto;
+      display: grid;
+      grid-template-columns: minmax(300px, 0.85fr) minmax(360px, 1.15fr);
+      gap: 18px;
+    }
+
+    section,
+    form,
+    .result {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      line-height: 1.1;
+    }
+
+    h1 {
+      font-size: clamp(30px, 5vw, 56px);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin-bottom: 14px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    button {
+      font: inherit;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 11px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    input:focus,
+    select:focus {
+      outline: 3px solid rgba(15, 118, 110, 0.16);
+      border-color: var(--accent);
+    }
+
+    button {
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      border-radius: 6px;
+      padding: 11px 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #fff;
+      color: var(--accent-dark);
+      border-color: var(--line);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.64;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .message {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 12px;
+      color: #334155;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .message.ok {
+      border-color: #abefc6;
+      background: #ecfdf3;
+      color: var(--ok);
+    }
+
+    .message.error {
+      border-color: #fecdca;
+      background: #fef3f2;
+      color: var(--danger);
+    }
+
+    pre {
+      margin: 0;
+      min-height: 210px;
+      max-height: 420px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #101828;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 13px;
+    }
+
+    .total {
+      display: grid;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #f8fafc;
+    }
+
+    .total strong {
+      font-size: 30px;
+    }
+
+    @media (max-width: 860px) {
+      main,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">CZ</div>
+      <div>
+        <strong>CognizApp Paystack Checkout</strong>
+        <span>Simple HTML, CSS, JS, and local backend checkout test</span>
+      </div>
+    </div>
+    <div class="status-pill" id="serverStatus">Checking backend...</div>
+  </header>
+
+  <main>
+    <section class="stack">
+      <div>
+        <h1>Start a real Paystack checkout.</h1>
+        <p class="muted">This page creates a support request, asks the local backend to initialize Paystack checkout, then opens the Paystack payment page. The secret key stays on the server.</p>
+      </div>
+
+      <div class="total">
+        <span class="muted">Checkout amount</span>
+        <strong id="displayTotal">GHS 1.00</strong>
+        <span class="hint">Use a small amount for live testing.</span>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <strong>1. Start the backend</strong>
+          <span class="muted">Run from the users folder with PAYSTACK_SECRET_KEY set in the server environment.</span>
+        </div>
+        <div class="step">
+          <strong>2. Create checkout</strong>
+          <span class="muted">The backend creates the support request and initializes the Paystack transaction.</span>
+        </div>
+        <div class="step">
+          <strong>3. Pay on Paystack</strong>
+          <span class="muted">The browser opens the hosted Paystack checkout page returned by the backend.</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="stack">
+      <form id="paymentForm">
+        <h2>Payment Details</h2>
+        <div class="grid">
+          <label>
+            API Base URL
+            <input id="apiBase" value="http://localhost:4040" required>
+          </label>
+          <label>
+            Dev Auth Secret
+            <input id="devSecret" type="password" value="cognizap_dev_auth_secret_testing_2026_v1_minimum_48chars_ok" required>
+          </label>
+          <label>
+            Customer Email
+            <input id="email" type="email" value="reginaldbrixton@gmail.com" required>
+          </label>
+          <label>
+            Customer Name
+            <input id="fullName" value="Paystack Test Customer" required>
+          </label>
+          <label>
+            Amount
+            <input id="amount" type="number" min="1" step="0.01" value="1.00" required>
+          </label>
+          <label>
+            Currency
+            <select id="currency">
+              <option value="GHS">GHS</option>
+              <option value="NGN">NGN</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+          <label>
+            Payment Type
+            <select id="paymentType">
+              <option value="full_payment">Full payment</option>
+              <option value="deposit">Deposit</option>
+              <option value="final_balance">Final balance</option>
+            </select>
+          </label>
+          <label>
+            Service Title
+            <input id="title" value="Simple Paystack checkout test" required>
+          </label>
+        </div>
+
+        <div class="actions" style="margin-top: 14px;">
+          <button id="startButton" type="submit">Create Checkout</button>
+          <button id="openButton" type="button" class="secondary" disabled>Open Checkout</button>
+        </div>
+      </form>
+
+      <div class="message" id="message">Ready.</div>
+
+      <div class="result">
+        <h2>Backend Response</h2>
+        <pre id="output">{}</pre>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById("paymentForm");
+    const apiBase = document.getElementById("apiBase");
+    const devSecret = document.getElementById("devSecret");
+    const email = document.getElementById("email");
+    const fullName = document.getElementById("fullName");
+    const amount = document.getElementById("amount");
+    const currency = document.getElementById("currency");
+    const paymentType = document.getElementById("paymentType");
+    const title = document.getElementById("title");
+    const message = document.getElementById("message");
+    const output = document.getElementById("output");
+    const displayTotal = document.getElementById("displayTotal");
+    const serverStatus = document.getElementById("serverStatus");
+    const startButton = document.getElementById("startButton");
+    const openButton = document.getElementById("openButton");
+
+    let accessToken = "";
+    let checkoutUrl = "";
+
+    function cleanBaseUrl() {
+      return apiBase.value.trim().replace(/\/+$/, "");
+    }
+
+    function show(text, type = "") {
+      message.textContent = text;
+      message.className = `message ${type}`;
+    }
+
+    function showJson(value) {
+      output.textContent = JSON.stringify(value, null, 2);
+    }
+
+    function money() {
+      const value = Number(amount.value || "0");
+      return `${currency.value} ${value.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+
+    function updateTotal() {
+      displayTotal.textContent = money();
+    }
+
+    async function request(path, options = {}) {
+      const response = await fetch(`${cleanBaseUrl()}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(options.headers || {}),
+        },
+      });
+      const text = await response.text();
+      let body = text;
+      try {
+        body = JSON.parse(text);
+      } catch {}
+      if (!response.ok) {
+        const error = new Error(
+          typeof body === "object"
+            ? body.message || body.error || body.errorCode || "Request failed"
+            : body,
+        );
+        error.response = { status: response.status, body };
+        throw error;
+      }
+      return body;
+    }
+
+    async function checkServer() {
+      try {
+        await fetch(`${cleanBaseUrl()}/health`, { cache: "no-store" });
+        serverStatus.textContent = "Backend online";
+      } catch {
+        serverStatus.textContent = "Backend offline";
+      }
+    }
+
+    async function login() {
+      const body = await request("/api/auth/dev/token", {
+        method: "POST",
+        headers: { "x-dev-auth-secret": devSecret.value.trim() },
+        body: JSON.stringify({ email: email.value.trim() }),
+      });
+      accessToken = body.accessToken || body.access_token || "";
+      if (!accessToken) {
+        throw new Error("Dev login did not return an access token.");
+      }
+      return body;
+    }
+
+    async function createSupportRequest() {
+      return request("/api/support/client/requests", {
+        method: "POST",
+        body: JSON.stringify({
+          title: title.value.trim(),
+          description: `Local Paystack checkout test for ${fullName.value.trim()}`,
+          serviceTags: ["proposal-review"],
+          academicLevel: "undergraduate",
+          subject: "Payment testing",
+          budgetMin: Number(amount.value),
+          currency: currency.value,
+          paymentMode: "before_work",
+          fullName: fullName.value.trim(),
+          integrityAck: true,
+          contactConsent: true,
+        }),
+      });
+    }
+
+    async function initializeCheckout(requestId) {
+      return request(`/api/support/client/requests/${encodeURIComponent(requestId)}/paystack/checkout`, {
+        method: "POST",
+        body: JSON.stringify({
+          paymentType: paymentType.value,
+          amount: Number(amount.value),
+          callbackUrl: window.location.href,
+        }),
+      });
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      checkoutUrl = "";
+      openButton.disabled = true;
+      startButton.disabled = true;
+      show("Creating checkout with the local backend...");
+
+      try {
+        if (!Number.isFinite(Number(amount.value)) || Number(amount.value) <= 0) {
+          throw new Error("Amount must be greater than zero.");
+        }
+
+        const auth = await login();
+        const created = await createSupportRequest();
+        const requestId = created.data?.id;
+        if (!requestId) {
+          throw new Error("Support request response did not include an id.");
+        }
+
+        const checkout = await initializeCheckout(requestId);
+        checkoutUrl = checkout.authorizationUrl || checkout.paystack?.data?.authorization_url || "";
+        showJson({ auth: { email: email.value.trim(), tokenReceived: Boolean(auth.accessToken || auth.access_token) }, created, checkout });
+
+        if (!checkoutUrl) {
+          throw new Error("Paystack did not return an authorization URL.");
+        }
+
+        openButton.disabled = false;
+        show("Checkout created. Opening Paystack now...", "ok");
+        window.open(checkoutUrl, "_blank", "noopener,noreferrer");
+      } catch (error) {
+        show(error.message || "Checkout failed.", "error");
+        showJson(error.response || { error: String(error.stack || error) });
+      } finally {
+        startButton.disabled = false;
+      }
+    });
+
+    openButton.addEventListener("click", () => {
+      if (checkoutUrl) {
+        window.open(checkoutUrl, "_blank", "noopener,noreferrer");
+      }
+    });
+
+    [amount, currency].forEach((input) => {
+      input.addEventListener("input", updateTotal);
+      input.addEventListener("change", updateTotal);
+    });
+
+    apiBase.addEventListener("change", checkServer);
+    updateTotal();
+    checkServer();
+  </script>
+</body>
+</html>

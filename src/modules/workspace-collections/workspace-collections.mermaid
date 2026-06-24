@@ -1,0 +1,32 @@
+erDiagram
+    workspace_collections {
+        uuid id PK
+        uuid workspace_id FK
+        text owner_uid
+        text name
+        text description
+        text collection_type
+        uuid parent_id FK
+        jsonb filters
+        integer sort_order
+        boolean is_default
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    collection_items {
+        uuid id PK
+        uuid collection_id FK
+        text item_type
+        uuid item_id
+        text added_by
+        timestamptz added_at
+        integer sort_order
+        jsonb metadata
+    }
+
+    workspaces ||--o{ workspace_collections : "has"
+    workspace_collections ||--o{ collection_items : "contains"
+    workspace_collections }o--o| workspace_collections : "parent"

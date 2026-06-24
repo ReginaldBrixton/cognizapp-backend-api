@@ -1,0 +1,23 @@
+erDiagram
+    workspace_settings {
+        uuid id PK
+        uuid workspace_id UK
+        text owner_id
+        jsonb general
+        jsonb appearance
+        jsonb notifications
+        jsonb security
+        jsonb limits
+        jsonb ai
+        jsonb access
+        jsonb features
+        jsonb storage
+        jsonb integrations
+        jsonb billing
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    workspaces ||--|| workspace_settings : "has"

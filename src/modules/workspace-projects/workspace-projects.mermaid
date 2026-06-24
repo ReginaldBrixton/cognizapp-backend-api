@@ -1,0 +1,133 @@
+erDiagram
+    workspace_projects {
+        uuid id PK
+        uuid workspace_id FK
+        text owner_uid
+        text title
+        text description
+        text status
+        text visibility
+        text field_of_study
+        text project_type
+        text[] keywords
+        text[] collaborators
+        integer completion_pct
+        timestamptz deadline
+        integer document_count
+        integer task_count
+        integer completed_tasks
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_documents {
+        uuid id PK
+        uuid project_id FK
+        text owner_uid
+        text title
+        text doc_type
+        text content
+        jsonb content_json
+        integer word_count
+        integer char_count
+        integer page_count
+        integer version
+        numeric plagiarism_score
+        numeric ai_content_score
+        numeric readability_score
+        timestamptz last_plagiarism_check
+        timestamptz last_ai_check
+        text[] collaborators
+        boolean is_public
+        text share_token
+        timestamptz share_expires_at
+        text status
+        boolean is_template
+        uuid parent_id FK
+        text abstract
+        text[] keywords
+        text citation_style
+        text language
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_slides {
+        uuid id PK
+        uuid project_id FK
+        text owner_uid
+        text title
+        jsonb slide_data
+        integer slide_count
+        integer version
+        text[] collaborators
+        boolean is_public
+        text share_token
+        timestamptz share_expires_at
+        text status
+        boolean is_template
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_notes {
+        uuid id PK
+        uuid project_id FK
+        text owner_uid
+        text title
+        text content
+        jsonb content_json
+        text[] collaborators
+        boolean is_public
+        text status
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_tasks {
+        uuid id PK
+        uuid project_id FK
+        uuid document_id FK
+        uuid slide_id FK
+        uuid note_id FK
+        text owner_uid
+        text assignee_uid
+        text created_by_uid
+        text title
+        text description
+        text status
+        text priority
+        text task_type
+        timestamptz due_date
+        timestamptz started_at
+        timestamptz completed_at
+        numeric estimated_hours
+        numeric actual_hours
+        text[] tags
+        jsonb attachments
+        jsonb subtasks
+        integer comments_count
+        integer display_order
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    workspaces ||--o{ workspace_projects : "contains"
+    workspace_projects ||--o{ project_documents : "contains"
+    workspace_projects ||--o{ project_slides : "contains"
+    workspace_projects ||--o{ project_notes : "contains"
+    workspace_projects ||--o{ project_tasks : "has"
+    project_documents ||--o| project_documents : "parent"
+    project_documents ||--o{ project_tasks : "has"
+    project_slides ||--o{ project_tasks : "has"
+    project_notes ||--o{ project_tasks : "has"

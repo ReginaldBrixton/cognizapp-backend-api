@@ -1,0 +1,54 @@
+erDiagram
+    user_settings {
+        uuid id PK
+        text user_id UK
+        text email
+        text full_name
+        text avatar_url
+        integer schema_version
+        jsonb feature_flags
+        jsonb account
+        jsonb profile
+        jsonb preferences
+        jsonb appearance
+        jsonb notifications
+        jsonb security
+        jsonb onboarding
+        jsonb privacy
+        jsonb storage
+        jsonb ai
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    user_onboarding {
+        uuid id PK
+        text user_id UK
+        text email
+        date date_of_birth
+        text gender
+        text country
+        text city
+        text user_type
+        text institution
+        text department
+        text position_title
+        text field_of_study
+        text[] research_interests
+        text primary_use_case
+        text experience_level
+        text how_did_you_hear
+        boolean consent_analytics
+        boolean consent_ai_training
+        boolean consent_marketing
+        jsonb steps_completed
+        boolean is_completed
+        timestamptz completed_at
+        timestamptz skipped_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    cognizap_users ||--|| user_settings : "has"
+    cognizap_users ||--|| user_onboarding : "completes"

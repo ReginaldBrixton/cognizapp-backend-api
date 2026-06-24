@@ -1,0 +1,386 @@
+erDiagram
+    workspaces {
+        uuid id PK
+        text owner_uid
+        text name
+        text slug
+        text description
+        text status
+        boolean is_default
+        text color
+        text icon
+        text avatar_url
+        text cover_url
+        jsonb settings
+        jsonb metadata
+        jsonb limits
+        jsonb counters
+        timestamptz last_opened_at
+        timestamptz last_activity_at
+        boolean is_pinned
+        boolean is_favorite
+        boolean is_archived
+        boolean is_public
+        text share_link
+        text share_token
+        timestamptz share_expires_at
+        integer view_count
+        integer total_time_spent
+        integer active_days
+        uuid cloned_from
+        boolean backup_enabled
+        integer display_order
+        boolean is_template
+        integer clone_count
+        timestamptz last_backup_at
+        text plan
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+        timestamptz archived_at
+        timestamptz pinned_at
+    }
+
+    workspace_members {
+        uuid id PK
+        uuid workspace_id FK
+        text user_uid
+        text email
+        text display_name
+        text avatar_url
+        text role
+        jsonb permissions
+        text invited_by
+        timestamptz invited_at
+        text invite_token
+        text invite_status
+        timestamptz joined_at
+        timestamptz last_seen_at
+        text status
+        integer activity_count
+        timestamptz last_activity_at
+        timestamptz removed_at
+        text removal_reason
+        jsonb preferences
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    workspace_projects {
+        uuid id PK
+        uuid workspace_id FK
+        text owner_uid
+        text title
+        text description
+        text status
+        text visibility
+        text field_of_study
+        text project_type
+        text[] keywords
+        text[] collaborators
+        integer completion_pct
+        timestamptz deadline
+        integer document_count
+        integer task_count
+        integer completed_tasks
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_documents {
+        uuid id PK
+        uuid project_id FK
+        text owner_uid
+        text title
+        text doc_type
+        text content
+        jsonb content_json
+        integer word_count
+        integer char_count
+        integer page_count
+        integer version
+        numeric plagiarism_score
+        numeric ai_content_score
+        numeric readability_score
+        timestamptz last_plagiarism_check
+        timestamptz last_ai_check
+        text[] collaborators
+        boolean is_public
+        text share_token
+        timestamptz share_expires_at
+        text status
+        boolean is_template
+        uuid parent_id FK
+        text abstract
+        text[] keywords
+        text citation_style
+        text language
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_slides {
+        uuid id PK
+        uuid project_id FK
+        text owner_uid
+        text title
+        jsonb slide_data
+        integer slide_count
+        integer version
+        text[] collaborators
+        boolean is_public
+        text share_token
+        timestamptz share_expires_at
+        text status
+        boolean is_template
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_notes {
+        uuid id PK
+        uuid project_id FK
+        text owner_uid
+        text title
+        text content
+        jsonb content_json
+        text[] collaborators
+        boolean is_public
+        text status
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    project_tasks {
+        uuid id PK
+        uuid project_id FK
+        uuid document_id FK
+        uuid slide_id FK
+        uuid note_id FK
+        text owner_uid
+        text assignee_uid
+        text created_by_uid
+        text title
+        text description
+        text status
+        text priority
+        text task_type
+        timestamptz due_date
+        timestamptz started_at
+        timestamptz completed_at
+        numeric estimated_hours
+        numeric actual_hours
+        text[] tags
+        jsonb attachments
+        jsonb subtasks
+        integer comments_count
+        integer display_order
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    workspace_analysis {
+        uuid id PK
+        uuid workspace_id FK
+        text owner_uid
+        text analysis_type
+        text title
+        text description
+        text status
+        jsonb input_data
+        jsonb result_data
+        numeric confidence_score
+        text source_reference
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    analysis_humanise {
+        uuid id PK
+        uuid analysis_id FK
+        text original_text
+        text humanised_text
+        numeric humanisation_score
+        jsonb change_log
+        text[] suggestions
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    analysis_textcompare {
+        uuid id PK
+        uuid analysis_id FK
+        text text_a
+        text text_b
+        numeric similarity_score
+        jsonb differences
+        text[] common_phrases
+        text[] unique_to_a
+        text[] unique_to_b
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    analysis_textidentify {
+        uuid id PK
+        uuid analysis_id FK
+        text input_text
+        text detected_language
+        text detected_tone
+        text[] detected_entities
+        jsonb classification_results
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    analysis_factcheck {
+        uuid id PK
+        uuid analysis_id FK
+        text claim_text
+        text verification_status
+        numeric credibility_score
+        jsonb evidence_sources
+        text[] supporting_sources
+        text[] refuting_sources
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    workspace_collections {
+        uuid id PK
+        uuid workspace_id FK
+        text owner_uid
+        text name
+        text description
+        text collection_type
+        uuid parent_id FK
+        jsonb filters
+        integer sort_order
+        boolean is_default
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    collection_items {
+        uuid id PK
+        uuid collection_id FK
+        text item_type
+        uuid item_id
+        text added_by
+        timestamptz added_at
+        integer sort_order
+        jsonb metadata
+    }
+
+    workspace_settings {
+        uuid id PK
+        uuid workspace_id UK
+        text owner_id
+        jsonb general
+        jsonb appearance
+        jsonb notifications
+        jsonb security
+        jsonb limits
+        jsonb ai
+        jsonb access
+        jsonb features
+        jsonb storage
+        jsonb integrations
+        jsonb billing
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    workspace_activity {
+        uuid id PK
+        uuid workspace_id FK
+        text user_uid
+        text user_email
+        text user_name
+        text activity_type
+        text description
+        jsonb metadata
+        text ip_address
+        text user_agent
+        text device_type
+        text related_entity_type
+        uuid related_entity_id
+        timestamptz created_at
+    }
+
+    workspace_invitations {
+        uuid id PK
+        uuid workspace_id FK
+        text invited_by
+        text email
+        text role
+        text token UK
+        timestamptz token_expires_at
+        text status
+        text accepted_by
+        timestamptz accepted_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    workspace_daily_stats {
+        uuid id PK
+        uuid workspace_id FK
+        date date
+        integer new_members
+        integer active_members
+        integer new_projects
+        integer new_tasks
+        integer completed_tasks
+        integer new_conversations
+        integer ai_tokens_used
+        integer api_calls
+        bigint storage_delta_bytes
+        integer activity_score
+        timestamptz created_at
+    }
+
+    cognizap_users ||--o{ workspaces : "owns"
+    workspaces ||--o{ workspace_members : "has"
+    workspaces ||--o{ workspace_projects : "contains"
+    workspaces ||--o{ workspace_analysis : "has"
+    workspaces ||--o{ workspace_collections : "has"
+    workspaces ||--|| workspace_settings : "has"
+    workspaces ||--o{ workspace_activity : "generates"
+    workspaces ||--o{ workspace_invitations : "has"
+    workspaces ||--o{ workspace_daily_stats : "tracks"
+
+    workspace_projects ||--o{ project_documents : "contains"
+    workspace_projects ||--o{ project_slides : "contains"
+    workspace_projects ||--o{ project_notes : "contains"
+    workspace_projects ||--o{ project_tasks : "has"
+
+    project_documents ||--o| project_documents : "parent"
+    project_documents ||--o{ project_tasks : "has"
+    project_slides ||--o{ project_tasks : "has"
+    project_notes ||--o{ project_tasks : "has"
+
+    workspace_analysis ||--o| analysis_humanise : "contains"
+    workspace_analysis ||--o| analysis_textcompare : "contains"
+    workspace_analysis ||--o| analysis_textidentify : "contains"
+    workspace_analysis ||--o| analysis_factcheck : "contains"
+
+    workspace_collections ||--o{ collection_items : "contains"
+    workspace_collections }o--o| workspace_collections : "parent"

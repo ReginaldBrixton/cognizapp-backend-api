@@ -1,0 +1,150 @@
+erDiagram
+    cognizap_users {
+        uuid id PK
+        text email UK
+        text phone
+        boolean email_verified
+        boolean phone_verified
+        timestamptz confirmed_at
+        text role
+        text status
+        timestamptz banned_until
+        boolean is_anonymous
+        boolean is_sso_user
+        text display_name
+        text full_name
+        text avatar_url
+        jsonb raw_app_meta_data
+        jsonb raw_user_meta_data
+        text[] providers
+        text provider
+        text provider_uid
+        jsonb identity_data
+        jsonb permissions
+        timestamptz role_assigned_at
+        text role_assigned_by
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz last_sign_in_at
+        integer login_count
+        integer failed_logins
+        timestamptz locked_until
+        text account_type
+        text subscription_status
+        timestamptz subscription_expires_at
+        boolean onboarding_completed
+        text onboarding_step
+        uuid last_workspace_id
+        text storage_tier
+        bigint storage_quota_bytes
+        bigint storage_used_bytes
+        timestamptz deleted_at
+    }
+
+    cognizap_sessions {
+        uuid id PK
+        uuid user_id FK
+        text email
+        text role
+        text token_hash
+        text refresh_token_hash
+        timestamptz expires_at
+        timestamptz refresh_expires_at
+        text ip_address
+        text user_agent
+        text device_fingerprint
+        text device_name
+        text device_type
+        text browser
+        text os
+        text country
+        text city
+        timestamptz created_at
+        timestamptz last_active
+        boolean is_revoked
+        timestamptz revoked_at
+        text revoked_reason
+        timestamptz reuse_detected_at
+        jsonb user_metadata
+    }
+
+    cognizap_activity_log {
+        uuid id PK
+        uuid user_id FK
+        text activity_type
+        text description
+        uuid session_id
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    permissions {
+        uuid id PK
+        text name UK
+        text display_name
+        text description
+        text category
+        timestamptz created_at
+    }
+
+    role_permissions {
+        uuid id PK
+        text role
+        text permission FK
+        timestamptz created_at
+    }
+
+    system_actors {
+        uuid id PK
+        text actor_key UK
+        text name
+        text purpose
+        text status
+        jsonb capabilities
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    cognizap_audit_events {
+        uuid id PK
+        uuid actor_id FK
+        text actor_key
+        text actor_type
+        text actor_role
+        text action
+        text target_type
+        text target_id
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    user_settings {
+        uuid id PK
+        text user_id UK
+        text email
+        text full_name
+        text avatar_url
+        integer schema_version
+        jsonb feature_flags
+        jsonb account
+        jsonb profile
+        jsonb settings
+        jsonb preferences
+        jsonb appearance
+        jsonb notifications
+        jsonb security
+        jsonb onboarding
+        jsonb privacy
+        jsonb storage
+        jsonb ai
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    cognizap_users ||--o{ cognizap_sessions : "has"
+    cognizap_users ||--o{ cognizap_activity_log : "generates"
+    cognizap_users ||--o{ user_settings : "has"
+    cognizap_users ||--o{ cognizap_audit_events : "triggers"
+    permissions ||--o{ role_permissions : "mapped to"
+    cognizap_users }o--o{ permissions : "granted via"
