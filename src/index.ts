@@ -1,36 +1,49 @@
 import { Elysia } from "elysia";
-import { createApp } from "./app/create-app";
 
-const startupRetryAttempts = Number(process.env.STARTUP_RETRY_ATTEMPTS ?? "3");
-const startupRetryDelayMs = Number(process.env.STARTUP_RETRY_DELAY_MS ?? "3000");
+import { LRUCache } from "./lib/lru-cache-shim";
 
-async function createAppWithRetry() {
-  let lastError: unknown;
+// Exercise the import so it cannot be tree-shaken and lru-cache is included in
+// the deployment bundle. lru-memoizer (via jwks-rsa / firebase-admin) needs it
+// available for require() at runtime.
+const lruCachePing = new LRUCache<string, string>({ max: 1 });
+lruCachePing.set("ping", "pong");
+lruCachePing.get("ping");
 
-  for (let attempt = 1; attempt <= startupRetryAttempts; attempt += 1) {
-    try {
-      return await createApp();
-    } catch (error) {
-      lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
+// Lazy initialization: create the real app on the first request. This avoids
+// top-level await circular-dependency crashes ("Requested module is not
+// instantiated yet") and keeps the Elysia default export available for
+// Vercel's framework scanner.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let appPromise: Promise<any> | null = null;
 
-      if (attempt >= startupRetryAttempts) {
-        break;
-      }
-
-      console.error(
-        `[startup] App initialization failed (${attempt}/${startupRetryAttempts}): ${message}. Retrying in ${startupRetryDelayMs}ms...`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, startupRetryDelayMs));
-    }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getApp(): Promise<any> {
+  if (!appPromise) {
+    appPromise = import("./app/create-app")
+      .then((mod) => mod.createApp())
+      .catch((error) => {
+        appPromise = null;
+        const name = error instanceof Error ? error.constructor.name : "Error";
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[vercel] Failed to initialize app: ${name}: ${message}`);
+        if (error instanceof Error) console.error(`[vercel] Stack: ${error.stack}`);
+        throw error;
+      });
   }
-
-  throw lastError;
+  return appPromise;
 }
 
-const app = await createAppWithRetry();
-
-// Keep a direct Elysia import in the detected entrypoint for Vercel's framework scanner.
-void Elysia;
+const app = new Elysia().all("*", async ({ request }) => {
+  try {
+    const realApp = await getApp();
+    return realApp.fetch(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return new Response(JSON.stringify({ error: "Internal Server Error", message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
 
 export default app;
