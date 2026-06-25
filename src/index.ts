@@ -3,14 +3,19 @@ import { LRUCache } from "lru-cache";
 
 import { createApp } from "./app/create-app";
 
-// Force lru-cache into the bundle (lru-memoizer needs it; bare side-effect
-// import is dropped by the bundler because lru-cache has sideEffects:false).
-void LRUCache;
+// Force lru-cache into the bundle and into the filesystem node_modules.
+// lru-cache has "sideEffects": false, so a bare `import "lru-cache"` or
+// unused `void LRUCache` is tree-shaken by the bundler. Instantiating and
+// exercising the cache is required so Vercel's deploy analyzer keeps the
+// package on disk for lru-memoizer (via jwks-rsa / firebase-admin) to
+// require() at runtime.
+const lruCachePing = new LRUCache<string, string>({ max: 1 });
+lruCachePing.set("ping", "pong");
+lruCachePing.get("ping");
 
 // Lazy initialization: call createApp() on the first request, not at module
 // load time. A top-level `await createApp()` crashes the whole Bun module
-// silently (Vercel logs "ResolveMessage {}") if createApp throws. Keeping the
-// import static ensures all dependencies are included in the Vercel bundle.
+// silently (Vercel logs "ResolveMessage {}") if createApp throws.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let appPromise: Promise<any> | null = null;
