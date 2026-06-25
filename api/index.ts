@@ -1,6 +1,10 @@
+import { Elysia } from "elysia";
 import "lru-cache";
 
 import { createApp } from "../src/app/create-app";
+
+// Keep a direct Elysia import in the detected entrypoint for Vercel's framework scanner.
+void Elysia;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let appPromise: Promise<any> | null = null;
