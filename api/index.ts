@@ -18,10 +18,11 @@ function getApp(): Promise<any> {
   return appPromise;
 }
 
-// Vercel web-standard fetch export for Bun/TypeScript functions.
-// This is the handler signature that Hono, Elysia, and other Bun frameworks use
-// when placed in the api/ directory.
-export async function fetch(request: Request): Promise<Response> {
+// Vercel Bun API function default export. The platform also accepts the
+// Web `fetch` export, but the default handler signature is more widely
+// supported and lets us return a Response directly.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default async function handler(request: Request | any): Promise<Response> {
   try {
     const app = await getApp();
     return app.fetch(request);
