@@ -1,7 +1,34 @@
-// Minimal API function test using the default (req, res) handler signature.
-// Vercel's Bun API function runtime expects this signature, not a Response return.
+import { createApp } from "../src/app/create-app";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default function handler(_req: any, res: any): void {
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ status: "ok", source: "api/index.ts" }));
+let appPromise: Promise<any> | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getApp(): Promise<any> {
+  if (!appPromise) {
+    appPromise = createApp().catch((error) => {
+      appPromise = null;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[vercel] Failed to initialize app: ${message}`);
+      throw error;
+    });
+  }
+  return appPromise;
+}
+
+export default async function handler(request: Request): Promise<Response> {
+  try {
+    const app = await getApp();
+    return app.fetch(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[vercel] Handler error: ${message}`);
+    return new Response(
+      JSON.stringify({ error: "Internal Server Error", message }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
 }
