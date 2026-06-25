@@ -115,7 +115,7 @@ async function callGeminiExtract(
 async function callCompletionExtract(prompt: string, filePart: GeminiPart): Promise<string> {
   const configuredUrl = (
     process.env.COGNIZAP_COMPLETION_URL ||
-    "https://cognizap-completion.vercel.app/v1/chat/completions"
+    "https://api.cognizapp.com/v1/chat/completions"
   ).trim().replace(/\/+$/, "")
   const completionUrl = configuredUrl.endsWith("/v1/chat/completions")
     ? configuredUrl
@@ -177,7 +177,7 @@ async function callCompletionChat(
 ): Promise<string> {
   const configuredUrl = (
     process.env.COGNIZAP_COMPLETION_URL ||
-    "https://cognizap-completion.vercel.app/v1/chat/completions"
+    "https://api.cognizapp.com/v1/chat/completions"
   ).trim().replace(/\/+$/, "")
   const completionUrl = configuredUrl.endsWith("/v1/chat/completions")
     ? configuredUrl

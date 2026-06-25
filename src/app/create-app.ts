@@ -42,7 +42,6 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.cognizapp.com",
   "https://admin.cognizapp.com",
   "https://provider.cognizapp.com",
-  "https://cognizap.vercel.app",
 ]);
 const requestStartTimes = new WeakMap<Request, number>();
 
