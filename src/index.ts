@@ -1,18 +1,5 @@
 import { Elysia } from "elysia";
 
-import { LRUCache } from "./lib/lru-cache-shim";
-
-// Exercise the import so it cannot be tree-shaken and lru-cache is included in
-// the deployment bundle. lru-memoizer (via jwks-rsa / firebase-admin) needs it
-// available for require() at runtime.
-const lruCachePing = new LRUCache<string, string>({ max: 1 });
-lruCachePing.set("ping", "pong");
-lruCachePing.get("ping");
-
-// Lazy initialization: create the real app on the first request. This avoids
-// top-level await circular-dependency crashes ("Requested module is not
-// instantiated yet") and keeps the Elysia default export available for
-// Vercel's framework scanner.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let appPromise: Promise<any> | null = null;
 
