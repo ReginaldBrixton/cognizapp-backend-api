@@ -1,14 +1,16 @@
 import { Elysia } from "elysia";
 import { LRUCache } from "lru-cache";
 
+import { createApp } from "./app/create-app";
+
 // Force lru-cache into the bundle (lru-memoizer needs it; bare side-effect
 // import is dropped by the bundler because lru-cache has sideEffects:false).
 void LRUCache;
 
-// Use lazy initialization so module load never crashes. The real Elysia app
-// is created on the first request, keeping the same retry logic as before.
-// This is critical for Vercel: a top-level `await createApp()` that throws
-// crashes the entire module silently (Vercel logs only "ResolveMessage {}").
+// Lazy initialization: call createApp() on the first request, not at module
+// load time. A top-level `await createApp()` crashes the whole Bun module
+// silently (Vercel logs "ResolveMessage {}") if createApp throws. Keeping the
+// import static ensures all dependencies are included in the Vercel bundle.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let appPromise: Promise<any> | null = null;
@@ -16,22 +18,20 @@ let appPromise: Promise<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getApp(): Promise<any> {
   if (!appPromise) {
-    appPromise = import("./app/create-app")
-      .then((mod) => mod.createApp())
-      .catch((error) => {
-        appPromise = null;
-        const name = error instanceof Error ? error.constructor.name : "Error";
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[vercel] Failed to initialize app: ${name}: ${message}`);
-        if (error instanceof Error) console.error(`[vercel] Stack: ${error.stack}`);
-        throw error;
-      });
+    appPromise = createApp().catch((error) => {
+      appPromise = null;
+      const name = error instanceof Error ? error.constructor.name : "Error";
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[vercel] Failed to initialize app: ${name}: ${message}`);
+      if (error instanceof Error) console.error(`[vercel] Stack: ${error.stack}`);
+      throw error;
+    });
   }
   return appPromise;
 }
 
-// Export a lightweight Elysia shell as default so Vercel's framework scanner
-// detects this as an Elysia app. All requests are proxied to the real app.
+// Export a lightweight Elysia shell so Vercel's framework scanner detects
+// this as an Elysia app. All requests are proxied to the real app.
 const app = new Elysia().all("*", async ({ request }) => {
   try {
     const realApp = await getApp();
