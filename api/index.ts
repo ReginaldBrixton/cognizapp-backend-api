@@ -18,19 +18,19 @@ function getApp(): Promise<any> {
   return appPromise;
 }
 
-// Vercel Bun API function default export. The platform also accepts the
-// Web `fetch` export, but the default handler signature is more widely
-// supported and lets us return a Response directly.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default async function handler(request: Request | any): Promise<Response> {
-  try {
-    const app = await getApp();
-    return app.fetch(request);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return new Response(JSON.stringify({ error: "Internal Server Error", message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-}
+// Vercel Web-standard fetch export for serverless functions.
+// Exported as a default object so Vercel's Bun runtime detects the fetch handler.
+export default {
+  async fetch(request: Request): Promise<Response> {
+    try {
+      const app = await getApp();
+      return app.fetch(request);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return new Response(JSON.stringify({ error: "Internal Server Error", message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  },
+};
