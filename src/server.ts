@@ -1,10 +1,13 @@
+import { createApp } from "./app/create-app";
 import { env } from "./config/env";
-import app from "./index";
 import { logger } from "./lib/logger";
 import {
   handleSupportMessagesWebSocketUpgrade,
   supportMessagesWebSocketHandlers,
 } from "./modules/support-messages/realtime";
+
+// For local dev, eagerly initialize the app so Bun.serve has the Elysia instance.
+const app = await createApp();
 
 const server = Bun.serve({
   port: env.port,

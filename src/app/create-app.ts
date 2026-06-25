@@ -1,4 +1,4 @@
-import { swagger } from "@elysiajs/swagger";
+// import { swagger } from "@elysiajs/swagger";
 import { Elysia } from "elysia";
 import { env } from "../config/env";
 import { ok } from "../lib/http";
@@ -232,14 +232,14 @@ export async function createApp() {
     .use(aiBotRoutes);
 
   if (env.isDevelopment) {
-    app.use(
-      swagger({
-        path: "/docs",
-        documentation: {
-          info: { title: "CognizApp Users API", version: "1.0.0" },
-        },
-      }),
-    );
+    // app.use(
+    //   swagger({
+    //     path: "/docs",
+    //     documentation: {
+    //       info: { title: "CognizApp Users API", version: "1.0.0" },
+    //     },
+    //   }),
+    // );
     app.get(env.localTestingPath, () =>
       ok({
         status: "ok",
