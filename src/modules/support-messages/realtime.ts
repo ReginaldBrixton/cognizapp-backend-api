@@ -1,8 +1,8 @@
 import type { Server, ServerWebSocket } from "bun";
 
 import { HttpError } from "../../lib/errors";
-import { resolveAuth, type AuthContext } from "../auth/middleware";
-import { createSupportMessage, getAuthorizedSupportMessageThread } from "./routes";
+import { resolveAuth } from "../auth/middleware";
+import type { AuthContext } from "../auth/context";
 
 type SupportSocketData = {
   auth: AuthContext;
@@ -93,6 +93,7 @@ export async function handleSupportMessagesWebSocketUpgrade(
 
   try {
     const auth = await resolveAuth({ authorization: `Bearer ${token}` });
+    const { getAuthorizedSupportMessageThread } = await import("./routes");
     await getAuthorizedSupportMessageThread(auth, threadId);
     const upgraded = server.upgrade(request, {
       data: {
@@ -129,6 +130,7 @@ export const supportMessagesWebSocketHandlers = {
       }
 
       if (type === "message.send") {
+        const { createSupportMessage } = await import("./routes");
         const result = await createSupportMessage(ws.data.auth, ws.data.threadId, {
           content: payload.content,
           body: payload.body,

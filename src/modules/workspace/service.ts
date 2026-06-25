@@ -10,7 +10,7 @@ import {
   type AssignableWorkspaceRole,
 } from "./types";
 import { workspaceRepository } from "./repository";
-import type { AuthContext } from "../auth/middleware";
+import type { AuthContext } from "../auth/context";
 
 function slugify(value: string) {
   return value

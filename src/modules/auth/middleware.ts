@@ -7,17 +7,9 @@ import { authorizationService, getActorType, normalizeRole, roleHierarchy } from
 import { readHeader } from "./helpers";
 import type { UserRecord } from "./types";
 import { isDefaultAdminEmail } from "./privileged-defaults";
+import type { AuthContext } from "./context";
 
-export type AuthContext = {
-  actorId: string;
-  userId: string;
-  email: string;
-  role: string;
-  actorType: "human" | "system";
-  permissions: string[];
-  sessionId: string;
-  user?: UserRecord;
-};
+export type { AuthContext } from "./context";
 
 async function assertPrivilegedAccessGrant(user: UserRecord) {
   const role = normalizeRole(user.role);
