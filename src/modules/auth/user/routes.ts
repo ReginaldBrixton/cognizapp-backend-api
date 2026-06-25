@@ -95,6 +95,7 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
           set.status = error.status;
           return fail(error.message, error.code, error.details);
         }
+        console.error("[auth:user] OTP request failed:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
         set.status = 500;
         return fail("Failed to send OTP", "otp_request_failed");
       }
@@ -117,6 +118,7 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
           set.status = error.status;
           return fail(error.message, error.code, error.details);
         }
+        console.error("[auth:user] OTP resend failed:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
         set.status = 500;
         return fail("Failed to send OTP", "otp_request_failed");
       }

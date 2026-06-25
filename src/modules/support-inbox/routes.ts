@@ -242,6 +242,349 @@ export const providerSettingsRoutes = new Elysia({ prefix: "/api/provider", tags
     body: providerSettingsBody,
   });
 
+async function handlePreviewsRetry({ headers, params }: any) {
+  const auth = await resolveAuth(headers);
+  if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
+  const [asset] = await getDb()`
+    SELECT source_file_id
+    FROM support_preview_assets
+    WHERE request_id = ${params.id}::uuid
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+  if (!asset?.source_file_id) {
+    throw new HttpError(404, "preview_source_not_found", "No protected-preview source is available for retry");
+  }
+  const previewAssets = await generateProtectedPreviews(params.id, String(asset.source_file_id));
+  await addSupportEvent(params.id, auth, "admin.preview_retried", "Provider retried protected preview generation", {
+    previewAssetIds: previewAssets.map((preview) => preview.id),
+  });
+  return ok({
+    data: previewAssets.map(toCamel),
+    message: "Protected previews regenerated",
+  });
+}
+
+async function handlePaymentPolicyOverride({ headers, params, body }: any) {
+  const auth = await resolveAuth(headers);
+  if (!isSupportAdminRole(auth.role)) requirePermission(auth, "support.users.inspect");
+  const reason = String(body.reason ?? "").trim();
+  if (reason.length < 8) {
+    throw new HttpError(400, "override_reason_required", "Provide a clear reason for the policy override");
+  }
+  const depositPercent = Number(body.depositPercent);
+  if (!Number.isFinite(depositPercent) || depositPercent < 0 || depositPercent > 100) {
+    throw new HttpError(400, "invalid_deposit_percent", "Deposit percent must be between 0 and 100");
+  }
+  if (!["deposit", "full_payment"].includes(body.previewUnlock)) {
+    throw new HttpError(400, "invalid_preview_unlock", "Preview unlock must be deposit or full_payment");
+  }
+  if (!["none", "deposit", "full_payment"].includes(body.workStartRequirement)) {
+    throw new HttpError(400, "invalid_work_start_requirement", "Invalid work-start requirement");
+  }
+  const db = getDb();
+  const [current] = await db`
+    SELECT *
+    FROM support_requests
+    WHERE id = ${params.id}::uuid
+    LIMIT 1
+  `;
+  if (!current) throw new HttpError(404, "request_not_found", "Support request not found");
+  if (
+    [
+      "pending",
+      "paystack_pending",
+      "deposit_pending_verification",
+      "deposit_paid",
+      "final_payment_pending_verification",
+      "final_payment_required",
+      "paid",
+    ].includes(String(current.payment_status ?? ""))
+  ) {
+    throw new HttpError(409, "payment_already_started", "Policy cannot be changed after payment checkout starts");
+  }
+  const basePolicy = buildSupportPaymentPolicy(
+    current,
+    (current.risk_tier ?? "first_time") as "first_time" | "trusted" | "high_risk",
+  );
+  const totalAmount = Number(current.final_amount ?? current.payment_amount ?? current.quoted_amount ?? 0);
+  const depositAmount = roundMoney((totalAmount * depositPercent) / 100);
+  const policy = {
+    ...basePolicy,
+    ...(current.payment_policy ?? {}),
+    depositPercent,
+    previewUnlock: body.previewUnlock,
+    workStartRequirement: body.workStartRequirement,
+    editableDocumentRequired: body.editableDocumentRequired,
+    revisionsAllowed: body.revisionsAllowed ?? current.revisions_allowed ?? 2,
+    override: {
+      reason,
+      actorId: auth.userId,
+      overriddenAt: new Date().toISOString(),
+    },
+  };
+  const [updated] = await db`
+    UPDATE support_requests
+    SET payment_policy = ${db.json(policy as any)},
+      payment_policy_version = payment_policy_version + 1,
+      deposit_percent = ${depositPercent},
+      deposit_amount = ${depositAmount},
+      balance_amount = GREATEST(${totalAmount} - ${depositAmount}, 0),
+      payment_mode = ${depositPercent >= 100 ? "before_work" : "deposit_then_balance"},
+      payment_status = CASE WHEN ${totalAmount <= 0} THEN 'paid' ELSE 'deposit_required' END,
+      revisions_allowed = ${policy.revisionsAllowed},
+      updated_at = NOW()
+    WHERE id = ${params.id}::uuid
+    RETURNING *
+  `;
+  await addSupportEvent(params.id, auth, "admin.payment_policy_override", "Admin overrode payment policy", {
+    reason,
+    depositPercent,
+    previewUnlock: body.previewUnlock,
+    workStartRequirement: body.workStartRequirement,
+    editableDocumentRequired: body.editableDocumentRequired,
+    revisionsAllowed: policy.revisionsAllowed,
+  });
+  await invalidateSupportCache(String(current.user_key_id));
+  await invalidateProviderSupportCache();
+  return ok({ data: toCamel(updated), message: "Payment policy override saved" });
+}
+
+async function handleDeliverRequest({ headers, params, request }: any) {
+  const auth = await resolveAuth(headers);
+  if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
+  const isAdmin = isSupportAdminRole(auth.role);
+  const db = getDb();
+  const form = await request.formData();
+  const note = String(form.get("deliveryNote") ?? form.get("note") ?? "").trim();
+  const pdfValue = form.get("pdfFile");
+  const docxValue = form.get("docxFile");
+  const pdfFile = pdfValue && isUploadedFile(pdfValue) ? pdfValue : null;
+  const docxFile = docxValue && isUploadedFile(docxValue) ? docxValue : null;
+  const previewImages = form
+    .getAll("previewImages")
+    .filter(isUploadedFile);
+  if (!pdfFile) {
+    throw new HttpError(
+      400,
+      "pdf_delivery_file_required",
+      "Upload the clean PDF preview source",
+    );
+  }
+  if (pdfFile.type !== "application/pdf" && !pdfFile.name.toLowerCase().endsWith(".pdf")) {
+    throw new HttpError(400, "invalid_pdf_source", "The preview source must be a PDF file");
+  }
+  if (!docxFile) {
+    throw new HttpError(
+      400,
+      "docx_delivery_file_required",
+      "Upload the clean DOCX file together with the PDF and preview images",
+    );
+  }
+  if (
+    docxFile.type !== "application/vnd.openxmlformats-officedocument.wordprocessingml.document" &&
+    !docxFile.name.toLowerCase().endsWith(".docx")
+  ) {
+    throw new HttpError(400, "invalid_docx_final", "The clean final document must be a DOCX file");
+  }
+  if (!previewImages.length) {
+    throw new HttpError(
+      400,
+      "preview_images_required",
+      "Upload ordered PNG or JPEG preview page images before publishing.",
+    );
+  }
+
+  const [supportRequest] = await db`
+    SELECT r.*, c.email, c.full_name
+    FROM support_requests r
+    LEFT JOIN support_clients c ON c.id = r.client_id
+    WHERE r.id = ${params.id}::uuid
+    LIMIT 1
+  `;
+  if (!supportRequest) throw new HttpError(404, "request_not_found", "Support request not found");
+  const deliverStatus = String(supportRequest.status ?? "draft");
+  if (!["in_progress", "work_ready", "error_resend_required"].includes(deliverStatus)) {
+    throw new HttpError(409, "invalid_status_transition", `Cannot deliver a request with status "${deliverStatus}"`);
+  }
+
+  const storedFiles: Record<string, any>[] = [];
+  const deliveryFiles: Array<[File, "admin_clean_pdf" | "admin_clean_docx"]> = [
+    [pdfFile, "admin_clean_pdf"],
+    [docxFile, "admin_clean_docx"],
+  ];
+  for (const [file, purpose] of deliveryFiles) {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const [storedFile] = await db`
+      INSERT INTO support_files (
+        request_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose
+      )
+      VALUES (
+        ${params.id}::uuid, ${supportRequest.user_key_id}, ${file.name}, '',
+        ${file.type || "application/octet-stream"}, ${file.size},
+        ${buffer.toString("base64")}, ${purpose}
+      )
+      RETURNING *
+    `;
+    storedFiles.push(storedFile);
+  }
+  const isPaid = supportRequest.payment_status === "paid";
+  const locked = !isPaid;
+  const deliveries = [];
+  await db`
+    UPDATE support_deliveries
+    SET is_locked = TRUE,
+      metadata = COALESCE(metadata, '{}'::jsonb) || ${db.json({
+    supersededAt: new Date().toISOString(),
+    supersededBy: auth.userId,
+    reason: "provider_reuploaded_delivery_package",
+  })}::jsonb,
+      updated_at = NOW()
+    WHERE request_id = ${params.id}::uuid
+      AND delivery_type = 'final'
+      AND asset_type = 'clean_final'
+      AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'supersededAt')
+  `;
+  for (const storedFile of storedFiles) {
+    const [delivery] = await db`
+      INSERT INTO support_deliveries (
+        request_id, uploaded_by_admin_id, file_id, delivery_note, is_locked,
+        unlocked_at, delivery_type, preview_allowed, asset_type, metadata
+      )
+      VALUES (
+        ${params.id}::uuid, ${auth.userId}, ${storedFile.id}, ${note}, ${locked},
+        ${locked ? null : new Date()}, 'final', FALSE, 'clean_final',
+        ${db.json({
+      uploadedByRole: normalizeRole(auth.role),
+      finalPaymentRequired: !isPaid,
+      filePurpose: storedFile.purpose,
+    })}
+      )
+      RETURNING *
+    `;
+    deliveries.push(delivery);
+  }
+  const previewPages = await storeImagePreviewPages({
+    requestId: params.id,
+    userKeyId: String(supportRequest.user_key_id),
+    previewImages,
+  });
+  const [updated] = await db`
+    UPDATE support_requests
+    SET status = 'work_ready',
+      delivery_status = ${locked ? "uploaded_locked" : "download_unlocked"},
+      payment_status = CASE
+        WHEN ${isPaid} THEN payment_status
+        WHEN payment_status = 'deposit_paid' THEN 'final_payment_required'
+        ELSE payment_status
+      END,
+      preview_status = 'ready',
+      preview_access = CASE
+        WHEN payment_status IN ('deposit_paid', 'paid') THEN 'full_protected'
+        ELSE 'limited'
+      END,
+      updated_at = NOW()
+    WHERE id = ${params.id}::uuid
+    RETURNING *
+  `;
+  await addSupportEvent(params.id, auth, "admin.delivery_uploaded", "Admin uploaded completed work", {
+    deliveryIds: deliveries.map((delivery) => delivery.id),
+    fileIds: storedFiles.map((file) => file.id),
+    previewPageIds: previewPages.map((page) => page.id),
+    previewPageCount: previewPages.length,
+    deliveryType: "paired_clean_final_with_image_preview_pages",
+    isLocked: locked,
+  });
+  const thread = await ensureSupportMessageThread(params.id, String(supportRequest.user_key_id));
+  if (thread) {
+    const attachment = {
+      kind: "preview_pages_card",
+      requestId: params.id,
+      title: "Preview pages ready",
+      description: "Review the page images in chat and request corrections before paying to unlock clean files.",
+      pageCount: previewPages.length,
+      locked: locked,
+      cleanFilesLocked: locked,
+      paymentType: isPaid ? "paid" : "final_balance",
+      paymentStatus: isPaid ? "paid" : "final_payment_required",
+      amount: Number(supportRequest.balance_amount ?? supportRequest.final_amount ?? supportRequest.payment_amount ?? 0),
+      currency: supportRequest.currency ?? "GHS",
+      files: storedFiles.map((file) => ({
+        id: file.id,
+        kind: "locked_delivery_file",
+        name: file.file_name,
+        label: file.file_name,
+        fileName: file.file_name,
+        fileType: file.file_type,
+        fileSize: file.file_size,
+        purpose: file.purpose,
+        locked,
+        canDownload: !locked,
+      })),
+      deliveredAt: new Date().toISOString(),
+    };
+    const [message] = await db`
+      INSERT INTO support_messages (
+        thread_id, sender_key_id, sender_name, sender_role, content, attachments, read_by
+      )
+      VALUES (
+        ${thread.id}, ${auth.userId}, ${auth.email}, 'provider',
+        ${"Preview pages are ready for review. Clean PDF and DOCX downloads stay locked until payment."},
+        ${db.json([attachment] as any)}, ARRAY[${auth.userId}]::TEXT[]
+      )
+      RETURNING *
+    `;
+    await db`
+      UPDATE support_message_threads
+      SET last_message_at = ${message.created_at}, updated_at = NOW()
+      WHERE id = ${thread.id}
+    `;
+    const { broadcastSupportMessage } = await import("../support-messages/realtime");
+    broadcastSupportMessage(String(thread.id), toCamel(message));
+  }
+  void sendSupportEmail(
+    String(supportRequest.email ?? ""),
+    String(supportRequest.user_key_id),
+    "support.delivery.uploaded",
+    locked ? "Your completed work has been uploaded" : "New support work is ready",
+    locked
+      ? "A protected preview is ready. Complete the required payments to view the full preview and unlock clean PDF/DOCX downloads."
+      : "Your protected preview and clean PDF/DOCX downloads are ready.",
+    {
+      requestId: params.id,
+      deliveryIds: deliveries.map((delivery) => delivery.id),
+      actionUrl: `/support/requests/${params.id}`,
+    },
+  ).catch((error) => console.warn("[support:email] delivery email failed", error));
+  void sendSupportWhatsApp(
+    String(supportRequest.whatsapp_number ?? ""),
+    String(supportRequest.user_key_id),
+    "support.delivery.uploaded",
+    locked ? "Your CogniZap file is ready" : "Your CogniZap work is ready",
+    locked
+      ? "Your protected preview is ready. Complete the required payment in your portal to unlock more access."
+      : "Your protected preview and clean PDF/DOCX files are ready in your portal.",
+    {
+      requestId: params.id,
+      taskId: String(supportRequest.task_id ?? ""),
+      deliveryIds: deliveries.map((delivery) => delivery.id),
+      actionUrl: `/support/requests/${params.id}`,
+    },
+  ).catch((error) => console.warn("[support:whatsapp] delivery WhatsApp failed", error));
+  await invalidateSupportCache(String(supportRequest.user_key_id));
+  await invalidateProviderSupportCache();
+  return ok({
+    data: {
+      deliveries: deliveries.map(toCamel),
+      previewPages: previewPages.map(toCamel),
+    },
+    request: toCamel(redactProviderRequest(updated, isAdmin)),
+    message: locked
+      ? "Preview pages published; clean PDF and DOCX remain locked"
+      : "Preview pages and clean files are ready",
+  });
+}
+
 export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["support-inbox"] })
   .onError(({ code, error, set }) => {
     if (error instanceof HttpError) {
@@ -717,11 +1060,11 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
         payment_status = ${finalAmount === 0 ? "paid" : "deposit_required"},
         status = CASE WHEN ${finalAmount === 0} THEN 'under_review' ELSE status END,
         payment_policy = ${db.json({
-          ...currentPolicy,
-          depositPercent,
-          previewUnlock: depositPercent >= 100 ? "full_payment" : currentPolicy.previewUnlock,
-          quotedAmount: finalAmount,
-        } as any)},
+      ...currentPolicy,
+      depositPercent,
+      previewUnlock: depositPercent >= 100 ? "full_payment" : currentPolicy.previewUnlock,
+      quotedAmount: finalAmount,
+    } as any)},
         payment_verified_at = ${finalAmount === 0 ? new Date() : null},
         payment_verified_by = ${finalAmount === 0 ? auth.userId : null},
         admin_notes = COALESCE(NULLIF(${reason}, ''), admin_notes),
@@ -873,8 +1216,8 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
 
     const content = String(body.message ?? body.note ?? "").trim() || (
       kind === "payment_card" ? `Payment request: ${card.currency} ${card.amount}`
-      : kind === "revision_card" ? "Revision update from your provider"
-      : "Your work is ready for delivery"
+        : kind === "revision_card" ? "Revision update from your provider"
+          : "Your work is ready for delivery"
     );
 
     const [message] = await db`
@@ -1658,90 +2001,17 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
       reason: t.String(),
     }),
   })
-  .post("/admin/requests/:id/payment-policy-override", async ({ headers, params, body }) => {
-    const auth = await resolveAuth(headers);
-    if (!isSupportAdminRole(auth.role)) requirePermission(auth, "support.users.inspect");
-    const reason = String(body.reason ?? "").trim();
-    if (reason.length < 8) {
-      throw new HttpError(400, "override_reason_required", "Provide a clear reason for the policy override");
-    }
-    const depositPercent = Number(body.depositPercent);
-    if (!Number.isFinite(depositPercent) || depositPercent < 0 || depositPercent > 100) {
-      throw new HttpError(400, "invalid_deposit_percent", "Deposit percent must be between 0 and 100");
-    }
-    if (!["deposit", "full_payment"].includes(body.previewUnlock)) {
-      throw new HttpError(400, "invalid_preview_unlock", "Preview unlock must be deposit or full_payment");
-    }
-    if (!["none", "deposit", "full_payment"].includes(body.workStartRequirement)) {
-      throw new HttpError(400, "invalid_work_start_requirement", "Invalid work-start requirement");
-    }
-    const db = getDb();
-    const [current] = await db`
-      SELECT *
-      FROM support_requests
-      WHERE id = ${params.id}::uuid
-      LIMIT 1
-    `;
-    if (!current) throw new HttpError(404, "request_not_found", "Support request not found");
-    if (
-      [
-        "pending",
-        "paystack_pending",
-        "deposit_pending_verification",
-        "deposit_paid",
-        "final_payment_pending_verification",
-        "final_payment_required",
-        "paid",
-      ].includes(String(current.payment_status ?? ""))
-    ) {
-      throw new HttpError(409, "payment_already_started", "Policy cannot be changed after payment checkout starts");
-    }
-    const basePolicy = buildSupportPaymentPolicy(
-      current,
-      (current.risk_tier ?? "first_time") as "first_time" | "trusted" | "high_risk",
-    );
-    const totalAmount = Number(current.final_amount ?? current.payment_amount ?? current.quoted_amount ?? 0);
-    const depositAmount = roundMoney((totalAmount * depositPercent) / 100);
-    const policy = {
-      ...basePolicy,
-      ...(current.payment_policy ?? {}),
-      depositPercent,
-      previewUnlock: body.previewUnlock,
-      workStartRequirement: body.workStartRequirement,
-      editableDocumentRequired: body.editableDocumentRequired,
-      revisionsAllowed: body.revisionsAllowed ?? current.revisions_allowed ?? 2,
-      override: {
-        reason,
-        actorId: auth.userId,
-        overriddenAt: new Date().toISOString(),
-      },
-    };
-    const [updated] = await db`
-      UPDATE support_requests
-      SET payment_policy = ${db.json(policy as any)},
-        payment_policy_version = payment_policy_version + 1,
-        deposit_percent = ${depositPercent},
-        deposit_amount = ${depositAmount},
-        balance_amount = GREATEST(${totalAmount} - ${depositAmount}, 0),
-        payment_mode = ${depositPercent >= 100 ? "before_work" : "deposit_then_balance"},
-        payment_status = CASE WHEN ${totalAmount <= 0} THEN 'paid' ELSE 'deposit_required' END,
-        revisions_allowed = ${policy.revisionsAllowed},
-        updated_at = NOW()
-      WHERE id = ${params.id}::uuid
-      RETURNING *
-    `;
-    await addSupportEvent(params.id, auth, "admin.payment_policy_override", "Admin overrode payment policy", {
-      reason,
-      depositPercent,
-      previewUnlock: body.previewUnlock,
-      workStartRequirement: body.workStartRequirement,
-      editableDocumentRequired: body.editableDocumentRequired,
-      revisionsAllowed: policy.revisionsAllowed,
-    });
-    await invalidateSupportCache(String(current.user_key_id));
-    await invalidateProviderSupportCache();
-    return ok({ data: toCamel(updated), message: "Payment policy override saved" });
-  }, {
+  .post("/admin/requests/:id/payment-policy-override", handlePaymentPolicyOverride, {
+    body: t.Object({
+      depositPercent: t.Number(),
+      previewUnlock: t.String(),
+      workStartRequirement: t.String(),
+      editableDocumentRequired: t.Boolean(),
+      revisionsAllowed: t.Optional(t.Number({ minimum: 0, maximum: 10 })),
+      reason: t.String(),
+    }),
+  })
+  .post("/provider/requests/:id/payment-policy-override", handlePaymentPolicyOverride, {
     body: t.Object({
       depositPercent: t.Number(),
       previewUnlock: t.String(),
@@ -1850,262 +2120,10 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
   }, {
     body: t.Object({ message: t.Optional(t.String()), notes: t.Optional(t.String()) }),
   })
-  .post("/admin/requests/:id/deliver", async ({ headers, params, request }) => {
-    const auth = await resolveAuth(headers);
-    if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
-    const isAdmin = isSupportAdminRole(auth.role);
-    const db = getDb();
-    const form = await request.formData();
-    const note = String(form.get("deliveryNote") ?? form.get("note") ?? "").trim();
-    const pdfValue = form.get("pdfFile");
-    const docxValue = form.get("docxFile");
-    const pdfFile = pdfValue && isUploadedFile(pdfValue) ? pdfValue : null;
-    const docxFile = docxValue && isUploadedFile(docxValue) ? docxValue : null;
-    const previewImages = form
-      .getAll("previewImages")
-      .filter(isUploadedFile);
-    if (!pdfFile) {
-      throw new HttpError(
-        400,
-        "pdf_delivery_file_required",
-        "Upload the clean PDF preview source",
-      );
-    }
-    if (pdfFile.type !== "application/pdf" && !pdfFile.name.toLowerCase().endsWith(".pdf")) {
-      throw new HttpError(400, "invalid_pdf_source", "The preview source must be a PDF file");
-    }
-    if (!docxFile) {
-      throw new HttpError(
-        400,
-        "docx_delivery_file_required",
-        "Upload the clean DOCX file together with the PDF and preview images",
-      );
-    }
-    if (
-      docxFile.type !== "application/vnd.openxmlformats-officedocument.wordprocessingml.document" &&
-      !docxFile.name.toLowerCase().endsWith(".docx")
-    ) {
-      throw new HttpError(400, "invalid_docx_final", "The clean final document must be a DOCX file");
-    }
-    if (!previewImages.length) {
-      throw new HttpError(
-        400,
-        "preview_images_required",
-        "Upload ordered PNG or JPEG preview page images before publishing.",
-      );
-    }
-
-    const [supportRequest] = await db`
-      SELECT r.*, c.email, c.full_name
-      FROM support_requests r
-      LEFT JOIN support_clients c ON c.id = r.client_id
-      WHERE r.id = ${params.id}::uuid
-      LIMIT 1
-    `;
-    if (!supportRequest) throw new HttpError(404, "request_not_found", "Support request not found");
-    const deliverStatus = String(supportRequest.status ?? "draft");
-    if (!["in_progress", "work_ready", "error_resend_required"].includes(deliverStatus)) {
-      throw new HttpError(409, "invalid_status_transition", `Cannot deliver a request with status "${deliverStatus}"`);
-    }
-
-    const storedFiles: Record<string, any>[] = [];
-    const deliveryFiles: Array<[File, "admin_clean_pdf" | "admin_clean_docx"]> = [
-      [pdfFile, "admin_clean_pdf"],
-      [docxFile, "admin_clean_docx"],
-    ];
-    for (const [file, purpose] of deliveryFiles) {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const [storedFile] = await db`
-        INSERT INTO support_files (
-          request_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose
-        )
-        VALUES (
-          ${params.id}::uuid, ${supportRequest.user_key_id}, ${file.name}, '',
-          ${file.type || "application/octet-stream"}, ${file.size},
-          ${buffer.toString("base64")}, ${purpose}
-        )
-        RETURNING *
-      `;
-      storedFiles.push(storedFile);
-    }
-    const isPaid = supportRequest.payment_status === "paid";
-    const locked = !isPaid;
-    const deliveries = [];
-    await db`
-      UPDATE support_deliveries
-      SET is_locked = TRUE,
-        metadata = COALESCE(metadata, '{}'::jsonb) || ${db.json({
-          supersededAt: new Date().toISOString(),
-          supersededBy: auth.userId,
-          reason: "provider_reuploaded_delivery_package",
-        })}::jsonb,
-        updated_at = NOW()
-      WHERE request_id = ${params.id}::uuid
-        AND delivery_type = 'final'
-        AND asset_type = 'clean_final'
-        AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'supersededAt')
-    `;
-    for (const storedFile of storedFiles) {
-      const [delivery] = await db`
-        INSERT INTO support_deliveries (
-          request_id, uploaded_by_admin_id, file_id, delivery_note, is_locked,
-          unlocked_at, delivery_type, preview_allowed, asset_type, metadata
-        )
-        VALUES (
-          ${params.id}::uuid, ${auth.userId}, ${storedFile.id}, ${note}, ${locked},
-          ${locked ? null : new Date()}, 'final', FALSE, 'clean_final',
-          ${db.json({
-            uploadedByRole: normalizeRole(auth.role),
-            finalPaymentRequired: !isPaid,
-            filePurpose: storedFile.purpose,
-          })}
-        )
-        RETURNING *
-      `;
-      deliveries.push(delivery);
-    }
-    const previewPages = await storeImagePreviewPages({
-      requestId: params.id,
-      userKeyId: String(supportRequest.user_key_id),
-      previewImages,
-    });
-    const [updated] = await db`
-      UPDATE support_requests
-      SET status = 'work_ready',
-        delivery_status = ${locked ? "uploaded_locked" : "download_unlocked"},
-        payment_status = CASE
-          WHEN ${isPaid} THEN payment_status
-          WHEN payment_status = 'deposit_paid' THEN 'final_payment_required'
-          ELSE payment_status
-        END,
-        preview_status = 'ready',
-        preview_access = CASE
-          WHEN payment_status IN ('deposit_paid', 'paid') THEN 'full_protected'
-          ELSE 'limited'
-        END,
-        updated_at = NOW()
-      WHERE id = ${params.id}::uuid
-      RETURNING *
-    `;
-    await addSupportEvent(params.id, auth, "admin.delivery_uploaded", "Admin uploaded completed work", {
-      deliveryIds: deliveries.map((delivery) => delivery.id),
-      fileIds: storedFiles.map((file) => file.id),
-      previewPageIds: previewPages.map((page) => page.id),
-      previewPageCount: previewPages.length,
-      deliveryType: "paired_clean_final_with_image_preview_pages",
-      isLocked: locked,
-    });
-    const thread = await ensureSupportMessageThread(params.id, String(supportRequest.user_key_id));
-    if (thread) {
-      const attachment = {
-        kind: "preview_pages_card",
-        requestId: params.id,
-        title: "Preview pages ready",
-        description: "Review the page images in chat and request corrections before paying to unlock clean files.",
-        pageCount: previewPages.length,
-        locked: locked,
-        cleanFilesLocked: locked,
-        paymentType: isPaid ? "paid" : "final_balance",
-        paymentStatus: isPaid ? "paid" : "final_payment_required",
-        amount: Number(supportRequest.balance_amount ?? supportRequest.final_amount ?? supportRequest.payment_amount ?? 0),
-        currency: supportRequest.currency ?? "GHS",
-        files: storedFiles.map((file) => ({
-          id: file.id,
-          kind: "locked_delivery_file",
-          name: file.file_name,
-          label: file.file_name,
-          fileName: file.file_name,
-          fileType: file.file_type,
-          fileSize: file.file_size,
-          purpose: file.purpose,
-          locked,
-          canDownload: !locked,
-        })),
-        deliveredAt: new Date().toISOString(),
-      };
-      const [message] = await db`
-        INSERT INTO support_messages (
-          thread_id, sender_key_id, sender_name, sender_role, content, attachments, read_by
-        )
-        VALUES (
-          ${thread.id}, ${auth.userId}, ${auth.email}, 'provider',
-          ${"Preview pages are ready for review. Clean PDF and DOCX downloads stay locked until payment."},
-          ${db.json([attachment] as any)}, ARRAY[${auth.userId}]::TEXT[]
-        )
-        RETURNING *
-      `;
-      await db`
-        UPDATE support_message_threads
-        SET last_message_at = ${message.created_at}, updated_at = NOW()
-        WHERE id = ${thread.id}
-      `;
-      const { broadcastSupportMessage } = await import("../support-messages/realtime");
-      broadcastSupportMessage(String(thread.id), toCamel(message));
-    }
-    void sendSupportEmail(
-      String(supportRequest.email ?? ""),
-      String(supportRequest.user_key_id),
-      "support.delivery.uploaded",
-      locked ? "Your completed work has been uploaded" : "New support work is ready",
-      locked
-        ? "A protected preview is ready. Complete the required payments to view the full preview and unlock clean PDF/DOCX downloads."
-        : "Your protected preview and clean PDF/DOCX downloads are ready.",
-      {
-        requestId: params.id,
-        deliveryIds: deliveries.map((delivery) => delivery.id),
-        actionUrl: `/support/requests/${params.id}`,
-      },
-    ).catch((error) => console.warn("[support:email] delivery email failed", error));
-    void sendSupportWhatsApp(
-      String(supportRequest.whatsapp_number ?? ""),
-      String(supportRequest.user_key_id),
-      "support.delivery.uploaded",
-      locked ? "Your CogniZap file is ready" : "Your CogniZap work is ready",
-      locked
-        ? "Your protected preview is ready. Complete the required payment in your portal to unlock more access."
-        : "Your protected preview and clean PDF/DOCX files are ready in your portal.",
-      {
-        requestId: params.id,
-        taskId: String(supportRequest.task_id ?? ""),
-        deliveryIds: deliveries.map((delivery) => delivery.id),
-        actionUrl: `/support/requests/${params.id}`,
-      },
-    ).catch((error) => console.warn("[support:whatsapp] delivery WhatsApp failed", error));
-    await invalidateSupportCache(String(supportRequest.user_key_id));
-    await invalidateProviderSupportCache();
-    return ok({
-      data: {
-        deliveries: deliveries.map(toCamel),
-        previewPages: previewPages.map(toCamel),
-      },
-      request: toCamel(redactProviderRequest(updated, isAdmin)),
-      message: locked
-        ? "Preview pages published; clean PDF and DOCX remain locked"
-        : "Preview pages and clean files are ready",
-    });
-  })
-  .post("/admin/requests/:id/previews/retry", async ({ headers, params }) => {
-    const auth = await resolveAuth(headers);
-    if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
-    const [asset] = await getDb()`
-      SELECT source_file_id
-      FROM support_preview_assets
-      WHERE request_id = ${params.id}::uuid
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `;
-    if (!asset?.source_file_id) {
-      throw new HttpError(404, "preview_source_not_found", "No protected-preview source is available for retry");
-    }
-    const previewAssets = await generateProtectedPreviews(params.id, String(asset.source_file_id));
-    await addSupportEvent(params.id, auth, "admin.preview_retried", "Provider retried protected preview generation", {
-      previewAssetIds: previewAssets.map((preview) => preview.id),
-    });
-    return ok({
-      data: previewAssets.map(toCamel),
-      message: "Protected previews regenerated",
-    });
-  })
+  .post("/admin/requests/:id/deliver", handleDeliverRequest)
+  .post("/provider/requests/:id/deliver", handleDeliverRequest)
+  .post("/admin/requests/:id/previews/retry", handlePreviewsRetry)
+  .post("/provider/requests/:id/previews/retry", handlePreviewsRetry)
   .post("/admin/requests/:id/complete", async ({ headers, params }) => {
     const auth = await resolveAuth(headers);
     if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
