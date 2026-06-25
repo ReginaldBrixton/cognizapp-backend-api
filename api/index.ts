@@ -1,8 +1,11 @@
 import { Elysia } from "elysia";
-import "lru-cache";
+import { LRUCache } from "lru-cache";
 
 import { createApp } from "../src/app/create-app";
 
+// Force lru-cache into the bundle (lru-memoizer needs it; bare side-effect
+// import is dropped by the bundler because lru-cache has sideEffects:false).
+void LRUCache;
 // Keep a direct Elysia import in the detected entrypoint for Vercel's framework scanner.
 void Elysia;
 

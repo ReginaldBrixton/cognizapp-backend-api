@@ -1,7 +1,11 @@
 import { Elysia } from "elysia";
-import "lru-cache";
+import { LRUCache } from "lru-cache";
 
 import { createApp } from "./app/create-app";
+
+// Force lru-cache into the bundle (lru-memoizer needs it; bare side-effect
+// import is dropped by the bundler because lru-cache has sideEffects:false).
+void LRUCache;
 
 const startupRetryAttempts = Number(process.env.STARTUP_RETRY_ATTEMPTS ?? "3");
 const startupRetryDelayMs = Number(process.env.STARTUP_RETRY_DELAY_MS ?? "3000");
