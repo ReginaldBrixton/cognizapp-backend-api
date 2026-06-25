@@ -1,7 +1,9 @@
 import { Elysia } from "elysia";
 
 // Minimal Elysia app for Vercel's framework scanner.
-// The actual API routes are served by api/index.ts with includeFiles.
-const app = new Elysia().get("/health", () => ({ status: "ok" }));
+// The real API is handled by api/index.ts (rewritten via vercel.json).
+const app = new Elysia()
+    .get("/health", () => ({ status: "ok" }))
+    .get("/", () => "cognizapp-backend-api");
 
 export default app;
