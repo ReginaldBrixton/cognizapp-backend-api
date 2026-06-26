@@ -32,13 +32,18 @@ async function toWebRequest(req: any): Promise<Request> {
   }
 
   let body: BodyInit | undefined;
-  if (method !== "GET" && method !== "HEAD" && req.body) {
+  if (method !== "GET" && method !== "HEAD") {
     const chunks: Buffer[] = [];
+    // Read from req directly (Node.js IncomingMessage is a readable stream)
     for await (const chunk of req) {
-      chunks.push(chunk);
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
     }
     const buffer = Buffer.concat(chunks);
-    body = buffer.length > 0 ? buffer : undefined;
+    if (buffer.length > 0) {
+      body = buffer;
+      // Ensure content-length matches the actual body size
+      headers.set("content-length", String(buffer.length));
+    }
   }
 
   return new Request(url, { method, headers, body });
