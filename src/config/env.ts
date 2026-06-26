@@ -30,6 +30,7 @@ export type AppEnv = {
   devImpersonationSecret: string;
   devImpersonationAllowPrivileged: boolean;
   devImpersonationAllowedEmails: string[];
+  testAuthBypassEnabled: boolean;
   testAuthBypassToken: string;
   testAuthBypassEmail: string;
   vercelEnv: string;
@@ -165,6 +166,7 @@ function createEnv(): AppEnv {
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
+    testAuthBypassEnabled: getBoolean("TEST_AUTH_BYPASS_ENABLED", false),
     testAuthBypassToken: process.env.TEST_AUTH_BYPASS_TOKEN?.trim() ?? "",
     testAuthBypassEmail: process.env.TEST_AUTH_BYPASS_EMAIL?.trim().toLowerCase() ?? "",
     vercelEnv: process.env.VERCEL_ENV?.trim() ?? "",
@@ -222,23 +224,29 @@ function createEnv(): AppEnv {
   }
 
   // ── Test auth bypass validation ──────────────────────────────────────
-  // This allows a static bearer token to bypass JWT auth on non-production
-  // Vercel deployments (preview) for interface testing. It is HARD-BLOCKED
-  // on production: the server will refuse to start if the token is set.
-  if (envObj.testAuthBypassToken) {
-    if (envObj.vercelEnv === "production") {
-      throw new Error(
-        "TEST_AUTH_BYPASS_TOKEN must not be set on production deployments. Remove it from Vercel production env vars.",
-      );
-    }
+  // This allows a static bearer token to bypass JWT auth for interface testing.
+  // It requires THREE env vars to be set simultaneously (triple safety):
+  //   1. TEST_AUTH_BYPASS_ENABLED=true  (explicit kill switch)
+  //   2. TEST_AUTH_BYPASS_TOKEN         (>=32 char random string)
+  //   3. TEST_AUTH_BYPASS_EMAIL          (email of user to impersonate)
+  //
+  // Remove TEST_AUTH_BYPASS_ENABLED to instantly kill the bypass on any
+  // environment. On production, a warning is logged when enabled.
+  if (envObj.testAuthBypassEnabled) {
     if (envObj.testAuthBypassToken.length < 32) {
       throw new Error(
-        "TEST_AUTH_BYPASS_TOKEN must be at least 32 characters long",
+        "TEST_AUTH_BYPASS_TOKEN must be at least 32 characters long when test auth bypass is enabled",
       );
     }
     if (!envObj.testAuthBypassEmail) {
       throw new Error(
-        "TEST_AUTH_BYPASS_EMAIL is required when TEST_AUTH_BYPASS_TOKEN is set",
+        "TEST_AUTH_BYPASS_EMAIL is required when test auth bypass is enabled",
+      );
+    }
+    if (envObj.vercelEnv === "production") {
+      console.warn(
+        "[security] TEST_AUTH_BYPASS_ENABLED is set on production. " +
+        "Remove this env var to disable the test auth bypass.",
       );
     }
   }

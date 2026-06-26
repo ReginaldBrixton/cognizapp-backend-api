@@ -39,14 +39,13 @@ export async function resolveAuth(headers: Headers | Record<string, string | und
   const authorization = readHeader(headers, "authorization");
   const [scheme, token] = authorization.split(" ");
 
-  // ── Test auth bypass (preview deployments only) ──────────────────────
+  // ── Test auth bypass (requires explicit enable flag) ─────────────────
   // Allows a static bearer token to skip JWT auth for interface testing.
-  // HARD-BLOCKED on production by env.ts startup validation — the server
-  // refuses to start if TEST_AUTH_BYPASS_TOKEN is set when VERCEL_ENV=production.
+  // Requires TEST_AUTH_BYPASS_ENABLED=true + token + email (triple safety).
   // The bypass still loads the real user from the DB so ownership checks
   // (user_key_id = auth.userId) work correctly.
   if (
-    env.testAuthBypassToken &&
+    env.testAuthBypassEnabled &&
     scheme?.toLowerCase() === "bearer" &&
     token === env.testAuthBypassToken
   ) {
