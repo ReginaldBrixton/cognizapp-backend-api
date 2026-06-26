@@ -2754,17 +2754,27 @@ export const supportRoutes = new Elysia({
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const filePurpose = isVoiceNote ? "voice_note" : purpose;
-      const [row] = await db`
-        INSERT INTO support_files (
-          request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round, is_voice_note, duration_seconds
-        )
-        VALUES (
-          ${requestId}, NULLIF(${milestoneId}, '')::uuid, ${targetUserId}, ${file.name}, '', ${file.type || "application/octet-stream"},
-          ${file.size}, ${buffer.toString("base64")}, ${filePurpose}, ${milestoneId ? fileSubmissionRound : 1},
-          ${isVoiceNote}, ${voiceNoteDuration ? Number(voiceNoteDuration) || null : null}
-        )
-        RETURNING *
-      `;
+      let row: any;
+      try {
+        [row] = await db`
+          INSERT INTO support_files (
+            request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round, is_voice_note, duration_seconds
+          )
+          VALUES (
+            ${requestId}, NULLIF(${milestoneId}, '')::uuid, ${targetUserId}, ${file.name}, '', ${file.type || "application/octet-stream"},
+            ${file.size}, ${buffer.toString("base64")}, ${filePurpose}, ${milestoneId ? fileSubmissionRound : 1},
+            ${isVoiceNote}, ${voiceNoteDuration ? Number(voiceNoteDuration) || null : null}
+          )
+          RETURNING *
+        `;
+      } catch (insertErr: any) {
+        console.error("[upload:insert-error]", {
+          message: insertErr?.message,
+          code: insertErr?.code,
+          detail: insertErr?.detail,
+        });
+        throw insertErr;
+      }
       const fileUrl = `/api/support/files/${row.id}/download`;
       const [updated] = await db`
         UPDATE support_files SET file_url = ${fileUrl} WHERE id = ${row.id} RETURNING *
