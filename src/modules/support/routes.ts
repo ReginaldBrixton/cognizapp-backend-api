@@ -722,7 +722,8 @@ export const supportRoutes = new Elysia({
       stack: env.isDevelopment && error instanceof Error ? error.stack : undefined,
     });
     set.status = 500;
-    return fail("Support request failed", "support_internal_error");
+    const errMsg = error instanceof Error ? error.message : String(error);
+    return fail(`Support request failed: ${errMsg}`, "support_internal_error");
   })
   .post(
     "/cost-estimate",
