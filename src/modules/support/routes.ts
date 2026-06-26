@@ -1595,6 +1595,7 @@ export const supportRoutes = new Elysia({
         SELECT id, request_id, user_key_id, file_name, file_url, file_type,
           file_size, purpose, storage_provider, external_file_id,
           external_file_url, external_upload_status, external_uploaded_at,
+          is_voice_note, duration_seconds,
           created_at, updated_at
         FROM support_files
         WHERE request_id = ${params.id}::uuid
@@ -1630,6 +1631,8 @@ export const supportRoutes = new Elysia({
         f.external_folder_id,
         f.external_upload_status,
         f.external_uploaded_at,
+        f.is_voice_note,
+        f.duration_seconds,
         f.created_at,
         f.updated_at
       FROM support_files f
