@@ -33,10 +33,9 @@ export type AppEnv = {
   n8nGmailSendWebhookUrl: string;
   n8nWebhookSecret: string;
   n8nWebhookTimeoutMs: number;
-  twilioAccountSid: string;
-  twilioAuthToken: string;
-  twilioWhatsAppFrom: string;
-  twilioWhatsAppContentSid: string;
+  wahaBaseUrl: string;
+  wahaApiKey: string;
+  wahaSession: string;
   redisUrl: string;
   redisHost: string;
   redisPort: number;
@@ -166,10 +165,9 @@ function createEnv(): AppEnv {
     n8nGmailSendWebhookUrl: process.env.N8N_GMAIL_SEND_WEBHOOK_URL?.trim() ?? "",
     n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET?.trim() ?? "",
     n8nWebhookTimeoutMs: getNumber("N8N_WEBHOOK_TIMEOUT_MS", 15000),
-    twilioAccountSid: process.env.TWILIO_ACCOUNT_SID?.trim() ?? "",
-    twilioAuthToken: process.env.TWILIO_AUTH_TOKEN?.trim() ?? "",
-    twilioWhatsAppFrom: process.env.TWILIO_WHATSAPP_FROM?.trim() ?? "",
-    twilioWhatsAppContentSid: process.env.TWILIO_WHATSAPP_CONTENT_SID?.trim() ?? "",
+    wahaBaseUrl: process.env.WAHA_BASE_URL?.trim() ?? "",
+    wahaApiKey: process.env.WAHA_API_KEY?.trim() ?? "",
+    wahaSession: process.env.WAHA_SESSION?.trim() ?? "default",
     redisUrl: process.env.REDIS_URL?.trim() ?? "",
     redisHost: process.env.REDIS_HOST?.trim() ?? "",
     redisPort: getNumber("REDIS_PORT", 6379),
