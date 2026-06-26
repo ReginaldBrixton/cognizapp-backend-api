@@ -4,7 +4,7 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
-      "includeFiles": "node_modules/lru-cache/**,src/sql/migrations/**"
+      "includeFiles": "node_modules/lru-cache/**"
     }
   },
   "rewrites": [

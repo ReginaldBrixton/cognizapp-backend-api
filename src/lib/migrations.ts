@@ -76,17 +76,54 @@ function statementsForMigration(sql: string) {
     .filter(Boolean);
 }
 
+// ── Inline migrations ─────────────────────────────────────────────────────
+// On Vercel serverless, dynamically-read SQL files (via readdir) may not be
+// included in the function bundle. Inline migrations guarantee they run.
+// Keys must match the filenames in src/sql/migrations/.
+const INLINE_MIGRATIONS: Record<string, string> = {
+  "074_voice_notes.sql": `
+ALTER TABLE support_files
+    ADD COLUMN IF NOT EXISTS is_voice_note BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE support_files
+    ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_support_files_voice_notes
+    ON support_files (request_id) WHERE is_voice_note = TRUE;
+`,
+};
+
 export async function runMigrations() {
   const migrationsDir = join(__dirname, "..", "sql", "migrations");
-  const migrationFiles = (await readdir(migrationsDir))
-    .filter((file) => /^\d+_.+\.sql$/.test(file))
-    .sort((a, b) => a.localeCompare(b));
+  let migrationFiles: string[] = [];
+
+  try {
+    migrationFiles = (await readdir(migrationsDir))
+      .filter((file) => /^\d+_.+\.sql$/.test(file))
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    // Directory not available (e.g. Vercel serverless bundle) — fall back to inline
+    migrationFiles = Object.keys(INLINE_MIGRATIONS).sort();
+  }
+
+  // Merge: ensure inline migrations are included even if filesystem had files
+  const allMigrations = Array.from(
+    new Set([...migrationFiles, ...Object.keys(INLINE_MIGRATIONS)],
+    )).sort((a, b) => a.localeCompare(b));
 
   let db: Sql | null = createMigrationDb();
 
   try {
-    for (const file of migrationFiles) {
-      const sql = await readFile(join(migrationsDir, file), "utf8");
+    for (const file of allMigrations) {
+      // Prefer filesystem SQL, fall back to inline
+      let sql: string;
+      try {
+        sql = await readFile(join(migrationsDir, file), "utf8");
+      } catch {
+        sql = INLINE_MIGRATIONS[file] ?? "";
+      }
+      if (!sql) continue;
+
       for (let attempt = 1; attempt <= MAX_MIGRATION_ATTEMPTS; attempt += 1) {
         try {
           console.log(`  Executing migration ${file}...`);
