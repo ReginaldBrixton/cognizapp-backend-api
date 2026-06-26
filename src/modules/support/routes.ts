@@ -722,8 +722,7 @@ export const supportRoutes = new Elysia({
       stack: env.isDevelopment && error instanceof Error ? error.stack : undefined,
     });
     set.status = 500;
-    const errMsg = error instanceof Error ? error.message : String(error);
-    return fail(`Support request failed: ${errMsg}`, "support_internal_error");
+    return fail("Support request failed", "support_internal_error");
   })
   .post(
     "/cost-estimate",
@@ -2765,7 +2764,7 @@ export const supportRoutes = new Elysia({
           VALUES (
             ${requestId}, NULLIF(${milestoneId}, '')::uuid, ${targetUserId}, ${file.name}, '', ${file.type || "application/octet-stream"},
             ${file.size}, ${buffer.toString("base64")}, ${filePurpose}, ${milestoneId ? fileSubmissionRound : 1},
-            ${isVoiceNote}, ${voiceNoteDuration ? Number(voiceNoteDuration) || null : null}
+            ${isVoiceNote}, ${voiceNoteDuration ? Math.round(Number(voiceNoteDuration)) || null : null}
           )
           RETURNING *
         `;
