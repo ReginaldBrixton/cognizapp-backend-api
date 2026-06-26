@@ -725,30 +725,33 @@ export async function getMilestoneHistory(milestoneId: string) {
   `;
   if (!milestone) return [];
 
-  // Fetch all file events for this milestone, ordered by round then time
+  // Fetch file events for this milestone (capped at 200 for performance)
   const events = await db`
     SELECT id, event_type, file_name, previous_file_name, actor_key_id, actor_role,
       submission_round, metadata, created_at
     FROM milestone_file_events
     WHERE milestone_id = ${milestoneId}::uuid
     ORDER BY submission_round ASC, created_at ASC
+    LIMIT 200
   `;
 
-  // Fetch all revisions for this milestone
+  // Fetch revisions for this milestone (capped at 50)
   const revisions = await db`
     SELECT id, reason, revision_message, status, submission_round, created_at
     FROM support_revisions
     WHERE milestone_id = ${milestoneId}::uuid
     ORDER BY submission_round ASC, created_at ASC
+    LIMIT 50
   `;
 
-  // Fetch all files for this milestone, grouped by round
+  // Fetch files for this milestone, grouped by round (capped at 200)
   const files = await db`
     SELECT f.id, f.file_name, f.file_type, f.file_size, f.purpose,
       f.submission_round, f.created_at, f.deleted_at, f.replaced_at, f.previous_file_name
     FROM support_files f
     WHERE f.milestone_id = ${milestoneId}::uuid
     ORDER BY f.submission_round ASC, f.created_at ASC
+    LIMIT 200
   `;
 
   // Build the rounds array

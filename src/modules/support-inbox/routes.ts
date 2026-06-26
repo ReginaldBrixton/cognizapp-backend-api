@@ -767,10 +767,26 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
       WHERE m.request_id = ${params.id}::uuid
       ORDER BY COALESCE(m.due_at, m.created_at), m.created_at
     `;
-    const data = await Promise.all(rows.map(async (row) => ({
+    const milestoneIds = rows.map((r) => String(r.id));
+    const allFiles: Array<Record<string, any>> = milestoneIds.length
+      ? await db`
+          SELECT id, milestone_id, file_name, file_type, file_size, file_url,
+            external_file_url, purpose, storage_provider, created_at, deleted_at
+          FROM support_files
+          WHERE milestone_id = ANY(${milestoneIds}::uuid[])
+          ORDER BY created_at DESC
+        `
+      : [];
+    const filesByMilestone = new Map<string, Array<Record<string, any>>>();
+    for (const f of allFiles) {
+      const key = String(f.milestone_id);
+      if (!filesByMilestone.has(key)) filesByMilestone.set(key, []);
+      filesByMilestone.get(key)!.push(f);
+    }
+    const data = rows.map((row) => ({
       ...toCamel(row),
-      files: await getMilestoneFiles(String(row.id)),
-    })));
+      files: (filesByMilestone.get(String(row.id)) ?? []).map(toCamel),
+    }));
     return ok({ data });
   })
   .post("/provider/requests/:id/milestones", async ({ headers, params, body }) => {
