@@ -30,6 +30,9 @@ export type AppEnv = {
   devImpersonationSecret: string;
   devImpersonationAllowPrivileged: boolean;
   devImpersonationAllowedEmails: string[];
+  testAuthBypassToken: string;
+  testAuthBypassEmail: string;
+  vercelEnv: string;
   n8nGmailSendWebhookUrl: string;
   n8nWebhookSecret: string;
   n8nWebhookTimeoutMs: number;
@@ -162,6 +165,9 @@ function createEnv(): AppEnv {
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
+    testAuthBypassToken: process.env.TEST_AUTH_BYPASS_TOKEN?.trim() ?? "",
+    testAuthBypassEmail: process.env.TEST_AUTH_BYPASS_EMAIL?.trim().toLowerCase() ?? "",
+    vercelEnv: process.env.VERCEL_ENV?.trim() ?? "",
     n8nGmailSendWebhookUrl: process.env.N8N_GMAIL_SEND_WEBHOOK_URL?.trim() ?? "",
     n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET?.trim() ?? "",
     n8nWebhookTimeoutMs: getNumber("N8N_WEBHOOK_TIMEOUT_MS", 15000),
@@ -211,6 +217,28 @@ function createEnv(): AppEnv {
     if (envObj.devImpersonationSecret.length < 64) {
       throw new Error(
         "DEV_IMPERSONATION_SECRET must be at least 64 characters long when dev impersonation is enabled",
+      );
+    }
+  }
+
+  // ── Test auth bypass validation ──────────────────────────────────────
+  // This allows a static bearer token to bypass JWT auth on non-production
+  // Vercel deployments (preview) for interface testing. It is HARD-BLOCKED
+  // on production: the server will refuse to start if the token is set.
+  if (envObj.testAuthBypassToken) {
+    if (envObj.vercelEnv === "production") {
+      throw new Error(
+        "TEST_AUTH_BYPASS_TOKEN must not be set on production deployments. Remove it from Vercel production env vars.",
+      );
+    }
+    if (envObj.testAuthBypassToken.length < 32) {
+      throw new Error(
+        "TEST_AUTH_BYPASS_TOKEN must be at least 32 characters long",
+      );
+    }
+    if (!envObj.testAuthBypassEmail) {
+      throw new Error(
+        "TEST_AUTH_BYPASS_EMAIL is required when TEST_AUTH_BYPASS_TOKEN is set",
       );
     }
   }

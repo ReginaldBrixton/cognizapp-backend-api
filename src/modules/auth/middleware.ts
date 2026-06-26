@@ -2,6 +2,7 @@ import { HttpError } from "../../lib/errors";
 import { verifyAccessToken } from "../../lib/crypto";
 import { cache } from "../../lib/cache";
 import { getDb } from "../../lib/db";
+import { env } from "../../config/env";
 import { authRepository } from "./repository";
 import { authorizationService, getActorType, normalizeRole, roleHierarchy } from "./policy";
 import { readHeader } from "./helpers";
@@ -37,6 +38,47 @@ async function assertPrivilegedAccessGrant(user: UserRecord) {
 export async function resolveAuth(headers: Headers | Record<string, string | undefined>): Promise<AuthContext> {
   const authorization = readHeader(headers, "authorization");
   const [scheme, token] = authorization.split(" ");
+
+  // ── Test auth bypass (preview deployments only) ──────────────────────
+  // Allows a static bearer token to skip JWT auth for interface testing.
+  // HARD-BLOCKED on production by env.ts startup validation — the server
+  // refuses to start if TEST_AUTH_BYPASS_TOKEN is set when VERCEL_ENV=production.
+  // The bypass still loads the real user from the DB so ownership checks
+  // (user_key_id = auth.userId) work correctly.
+  if (
+    env.testAuthBypassToken &&
+    scheme?.toLowerCase() === "bearer" &&
+    token === env.testAuthBypassToken
+  ) {
+    const db = getDb();
+    const [row] = await db`
+      SELECT * FROM users WHERE lower(email) = ${env.testAuthBypassEmail}
+      LIMIT 1
+    `;
+    if (!row) {
+      throw new HttpError(
+        401,
+        "bypass_user_not_found",
+        `Test bypass user not found for email: ${env.testAuthBypassEmail}`,
+      );
+    }
+    const user = row as unknown as UserRecord;
+    if (user.status === "banned" || user.status === "deleted" || user.status === "disabled") {
+      throw new HttpError(403, "account_disabled", "Test bypass account is not active");
+    }
+    return {
+      actorId: user.id,
+      userId: user.id,
+      email: user.email,
+      role: normalizeRole(user.role),
+      actorType: getActorType(user.role),
+      permissions: user.permissions ?? [],
+      sessionId: "test-bypass-session",
+      user,
+    };
+  }
+
+  // ── Normal JWT auth flow ─────────────────────────────────────────────
   if (scheme?.toLowerCase() !== "bearer" || !token) {
     throw new HttpError(401, "unauthorized", "Missing or invalid Authorization header");
   }
