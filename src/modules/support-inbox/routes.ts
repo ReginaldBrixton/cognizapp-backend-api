@@ -836,14 +836,35 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
       : null;
     const dueAt = body.dueAt || body.due_at ? new Date(String(body.dueAt ?? body.due_at)) : null;
     const providerNotes = body.providerNotes ?? body.provider_notes ?? null;
+    const newStatus = body.status ? normalizeMilestoneStatus(body.status) : null;
+
+    // If transitioning to submitted from revision_requested, increment round
+    let roundUpdate: number | null = null;
+    if (newStatus === "submitted") {
+      const [current] = await db`
+        SELECT status, submission_round
+        FROM request_milestones
+        WHERE id = ${params.milestoneId}::uuid AND request_id = ${params.id}::uuid
+        LIMIT 1
+      `;
+      if (current) {
+        if (current.status === "revision_requested") {
+          roundUpdate = Number(current.submission_round ?? 0) + 1;
+        } else if (Number(current.submission_round ?? 0) === 0) {
+          roundUpdate = 1;
+        }
+      }
+    }
+
     const [milestone] = await db`
       UPDATE request_milestones
       SET title = COALESCE(NULLIF(${String(body.title ?? "").trim()}, ''), title),
         description = COALESCE(${description}, description),
         due_at = COALESCE(${dueAt}, due_at),
-        status = COALESCE(${body.status ? normalizeMilestoneStatus(body.status) : null}::text, status),
+        status = COALESCE(${newStatus ? newStatus : null}::text, status),
+        submission_round = COALESCE(${roundUpdate}::int, submission_round),
         provider_notes = COALESCE(${providerNotes}, provider_notes),
-        submitted_at = CASE WHEN ${body.status ?? null}::text = 'submitted' THEN COALESCE(submitted_at, NOW()) ELSE submitted_at END,
+        submitted_at = CASE WHEN ${newStatus ?? null}::text = 'submitted' THEN COALESCE(submitted_at, NOW()) ELSE submitted_at END,
         updated_at = NOW()
       WHERE id = ${params.milestoneId}::uuid
         AND request_id = ${params.id}::uuid
@@ -902,9 +923,20 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
     const thread = await ensureSupportMessageThread(params.id, String(milestone.user_key_id));
     if (!thread) throw new HttpError(500, "thread_unavailable", "Could not create request conversation");
     const status = normalizeMilestoneStatus(body.status ?? "submitted");
+
+    // If resubmitting after a revision, increment the submission round
+    let newRound = Number(milestone.submission_round ?? 0);
+    const isResubmission = milestone.status === "revision_requested" && status === "submitted";
+    if (isResubmission) {
+      newRound = newRound + 1;
+    } else if (status === "submitted" && newRound === 0) {
+      newRound = 1;
+    }
+
     const [updatedMilestone] = await db`
       UPDATE request_milestones
       SET status = ${status},
+        submission_round = ${newRound},
         submitted_at = CASE WHEN ${status} = 'submitted' THEN COALESCE(submitted_at, NOW()) ELSE submitted_at END,
         provider_notes = COALESCE(NULLIF(${String(body.note ?? body.message ?? "").trim()}, ''), provider_notes),
         updated_at = NOW()
@@ -969,10 +1001,12 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
       milestoneId: String(updatedMilestone.id),
       auth,
       eventType: existingCardMessage ? "card_updated" : "card_sent",
+      submissionRound: newRound,
       metadata: {
         messageId: message.id,
         status: updatedMilestone.status,
         fileCount: card.fileCount ?? 0,
+        submissionRound: newRound,
       },
     });
     await invalidateSupportCache(String(milestone.user_key_id));
@@ -984,6 +1018,58 @@ export const supportInboxRoutes = new Elysia({ prefix: "/api/support", tags: ["s
       note: t.Optional(t.String()),
       status: t.Optional(t.String()),
     }),
+  })
+  .get("/provider/requests/:id/milestones/:milestoneId", async ({ headers, params }) => {
+    const auth = await resolveAuth(headers);
+    if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
+    const db = getDb();
+    const [row] = await db`
+      SELECT m.*,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM support_files f
+          WHERE f.milestone_id = m.id
+        ), 0) AS file_count,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM support_revisions rv
+          WHERE rv.milestone_id = m.id
+        ), 0) AS revision_request_count,
+        latest_revision.reason AS latest_revision_reason,
+        latest_revision.revision_message AS latest_revision_message,
+        latest_revision.status AS latest_revision_status,
+        latest_revision.created_at AS latest_revision_at
+      FROM request_milestones m
+      LEFT JOIN LATERAL (
+        SELECT rv.reason, rv.revision_message, rv.status, rv.created_at
+        FROM support_revisions rv
+        WHERE rv.milestone_id = m.id
+        ORDER BY rv.created_at DESC
+        LIMIT 1
+      ) latest_revision ON TRUE
+      WHERE m.id = ${params.milestoneId}::uuid
+        AND m.request_id = ${params.id}::uuid
+      LIMIT 1
+    `;
+    if (!row) throw new HttpError(404, "milestone_not_found", "Milestone not found");
+    const data = {
+      ...toCamel(row),
+      files: await getMilestoneFiles(String(row.id)),
+    };
+    return ok({ data });
+  })
+  .get("/provider/requests/:id/milestones/:milestoneId/history", async ({ headers, params }) => {
+    const auth = await resolveAuth(headers);
+    if (!canSeeProvider(auth)) requirePermission(auth, "support.tickets.respond");
+    const [row] = await getDb()`
+      SELECT id FROM request_milestones
+      WHERE id = ${params.milestoneId}::uuid AND request_id = ${params.id}::uuid
+      LIMIT 1
+    `;
+    if (!row) throw new HttpError(404, "milestone_not_found", "Milestone not found");
+    const { getMilestoneHistory } = await import("../support/shared");
+    const history = await getMilestoneHistory(String(params.milestoneId));
+    return ok({ data: history });
   })
   .post("/provider/requests/:id/discount-decision", async ({ headers, params, body }) => {
     const auth = await resolveAuth(headers);

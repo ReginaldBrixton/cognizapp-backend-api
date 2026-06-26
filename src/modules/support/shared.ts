@@ -10,8 +10,8 @@ import { uploadSupportFile, uploadthingConfigured } from "../../lib/uploadthing"
 import {
   normalizeWhatsAppNumber,
   sendWhatsAppNotification,
-  twilioWhatsAppConfigured,
-} from "../../lib/twilio-whatsapp";
+  wahaWhatsAppConfigured as twilioWhatsAppConfigured,
+} from "../../lib/waha-whatsapp";
 import { auditRepository } from "../audit/repository";
 import { notificationsRepository } from "../notifications/repository";
 import { requirePermission, resolveAuth, type AuthContext } from "../auth/middleware";
@@ -565,11 +565,12 @@ export async function getMilestoneFiles(milestoneId: string) {
     SELECT f.id, f.request_id, f.milestone_id, f.user_key_id, f.file_name, f.file_url, f.file_type,
       f.file_size, f.purpose, f.storage_provider, f.external_file_id, f.external_file_url,
       f.external_upload_status, f.created_at, f.deleted_at, f.replaced_at, f.previous_file_name,
+      f.submission_round,
       r.payment_status, r.payment_policy
     FROM support_files f
     LEFT JOIN support_requests r ON r.id = f.request_id
     WHERE f.milestone_id = ${milestoneId}::uuid
-    ORDER BY f.created_at DESC
+    ORDER BY f.submission_round DESC, f.created_at DESC
   `;
   return rows.map((file) => {
     const item = toCamel(file);
@@ -593,6 +594,7 @@ export async function getMilestoneFiles(milestoneId: string) {
       canPreview: providerFile,
       canDownload: false,
       previousName: item.previousFileName ?? null,
+      submissionRound: Number(item.submissionRound ?? 1),
     };
   });
 }
@@ -606,6 +608,7 @@ export async function recordMilestoneFileEvent({
   fileName,
   previousFileName,
   metadata = {},
+  submissionRound,
 }: {
   requestId: string;
   milestoneId?: string | null;
@@ -615,19 +618,21 @@ export async function recordMilestoneFileEvent({
   fileName?: string | null;
   previousFileName?: string | null;
   metadata?: Record<string, any>;
+  submissionRound?: number;
 }) {
   const db = getDb();
   const [table] = await db`SELECT to_regclass('app.milestone_file_events') AS regclass`;
   if (!table?.regclass) return null;
+  const round = submissionRound ?? 1;
   const [event] = await db`
     INSERT INTO milestone_file_events (
       request_id, milestone_id, file_id, actor_key_id, actor_role,
-      event_type, file_name, previous_file_name, metadata
+      event_type, file_name, previous_file_name, metadata, submission_round
     )
     VALUES (
       ${requestId}::uuid, NULLIF(${milestoneId ?? ""}, '')::uuid, NULLIF(${fileId ?? ""}, '')::uuid,
       ${auth.userId}, ${auth.role || "provider"}, ${eventType},
-      ${fileName ?? null}, ${previousFileName ?? null}, ${db.json(metadata)}
+      ${fileName ?? null}, ${previousFileName ?? null}, ${db.json(metadata)}, ${round}
     )
     RETURNING *
   `;
@@ -640,6 +645,7 @@ export async function buildMilestoneCardAttachment(
   latestRevision?: Record<string, any> | null,
 ) {
   const files = await getMilestoneFiles(String(milestone.id));
+  const submissionRound = Number(milestone.submission_round ?? 0);
   return {
     kind: "milestone_card",
     milestoneId: milestone.id,
@@ -650,6 +656,7 @@ export async function buildMilestoneCardAttachment(
     status: milestone.status,
     revisionCount: milestone.revision_count,
     revisionRequestCount: milestone.revision_count,
+    submissionRound,
     fileCount: files.length,
     files,
     locked: true,
@@ -699,6 +706,154 @@ export async function refreshMilestoneCardMessages(
     RETURNING sm.*
   `;
   return messages.map(toCamel);
+}
+
+/**
+ * Fetch the full history of a milestone, grouped by submission round.
+ * Each round includes: the files uploaded in that round, any revision request,
+ * and the file events that occurred. This powers the "version history" UI.
+ */
+export async function getMilestoneHistory(milestoneId: string) {
+  const db = getDb();
+
+  // Check the milestone exists and get its current round
+  const [milestone] = await db`
+    SELECT id, submission_round, status, created_at
+    FROM request_milestones
+    WHERE id = ${milestoneId}::uuid
+    LIMIT 1
+  `;
+  if (!milestone) return [];
+
+  // Fetch all file events for this milestone, ordered by round then time
+  const events = await db`
+    SELECT id, event_type, file_name, previous_file_name, actor_key_id, actor_role,
+      submission_round, metadata, created_at
+    FROM milestone_file_events
+    WHERE milestone_id = ${milestoneId}::uuid
+    ORDER BY submission_round ASC, created_at ASC
+  `;
+
+  // Fetch all revisions for this milestone
+  const revisions = await db`
+    SELECT id, reason, revision_message, status, submission_round, created_at
+    FROM support_revisions
+    WHERE milestone_id = ${milestoneId}::uuid
+    ORDER BY submission_round ASC, created_at ASC
+  `;
+
+  // Fetch all files for this milestone, grouped by round
+  const files = await db`
+    SELECT f.id, f.file_name, f.file_type, f.file_size, f.purpose,
+      f.submission_round, f.created_at, f.deleted_at, f.replaced_at, f.previous_file_name
+    FROM support_files f
+    WHERE f.milestone_id = ${milestoneId}::uuid
+    ORDER BY f.submission_round ASC, f.created_at ASC
+  `;
+
+  // Build the rounds array
+  const maxRound = Math.max(
+    milestone.submission_round || 0,
+    ...events.map((e) => e.submission_round || 1),
+    ...revisions.map((r) => r.submission_round || 1),
+    ...files.map((f) => f.submission_round || 1),
+  );
+
+  const rounds: Array<{
+    round: number;
+    label: string;
+    files: any[];
+    revision: any | null;
+    events: any[];
+    submittedAt: string | null;
+  }> = [];
+
+  for (let round = 1; round <= maxRound; round++) {
+    const roundFiles = files
+      .filter((f) => (f.submission_round || 1) === round)
+      .map((f) => ({
+        id: f.id,
+        name: f.file_name,
+        fileName: f.file_name,
+        type: f.file_type,
+        size: f.file_size,
+        purpose: f.purpose,
+        round,
+        createdAt: f.created_at,
+        deletedAt: f.deleted_at,
+        replacedAt: f.replaced_at,
+        previousName: f.previous_file_name,
+        status: f.deleted_at ? "deleted" : f.replaced_at ? "replaced" : "active",
+      }));
+
+    const roundRevision = revisions.find((r) => (r.submission_round || 1) === round);
+    const roundEvents = events
+      .filter((e) => (e.submission_round || 1) === round)
+      .map((e) => ({
+        id: e.id,
+        eventType: e.event_type,
+        fileName: e.file_name,
+        previousFileName: e.previous_file_name,
+        actorKeyId: e.actor_key_id,
+        actorRole: e.actor_role,
+        round,
+        metadata: e.metadata,
+        createdAt: e.created_at,
+      }));
+
+    // Find the card_sent or card_updated event for this round to get submittedAt
+    const submitEvent = roundEvents.find(
+      (e) => e.eventType === "card_sent" || e.eventType === "card_updated",
+    );
+
+    rounds.push({
+      round,
+      label: round === 1 ? "Initial submission" : `Revision ${round - 1} resubmission`,
+      files: roundFiles,
+      revision: roundRevision
+        ? {
+          id: roundRevision.id,
+          reason: roundRevision.reason,
+          message: roundRevision.revision_message,
+          status: roundRevision.status,
+          round,
+          createdAt: roundRevision.created_at,
+        }
+        : null,
+      events: roundEvents,
+      submittedAt: submitEvent?.createdAt ?? null,
+    });
+  }
+
+  return rounds;
+}
+
+/**
+ * Get the current submission round for a milestone.
+ */
+export async function getMilestoneSubmissionRound(milestoneId: string): Promise<number> {
+  const [row] = await getDb()`
+    SELECT submission_round
+    FROM request_milestones
+    WHERE id = ${milestoneId}::uuid
+    LIMIT 1
+  `;
+  return Number(row?.submission_round ?? 0);
+}
+
+/**
+ * Increment the submission round on a milestone (called when provider resubmits
+ * after a revision request).
+ */
+export async function incrementMilestoneSubmissionRound(milestoneId: string): Promise<number> {
+  const [row] = await getDb()`
+    UPDATE request_milestones
+    SET submission_round = submission_round + 1,
+      updated_at = NOW()
+    WHERE id = ${milestoneId}::uuid
+    RETURNING submission_round
+  `;
+  return Number(row?.submission_round ?? 1);
 }
 
 export async function completeSupportMessageThreads(requestId: string) {
@@ -977,11 +1132,11 @@ export async function accrueReferralReward(payment: Record<string, any>) {
             ${String(payment.currency ?? "GHS")}, 'pending', ${requestId}::uuid,
             ${paymentId}::uuid, 'Referral commission from verified support payment',
             ${db.json({
-              referralRelationshipId: String(relationship.id),
-              referralCommissionId: String(commission.id),
-              referredUserId,
-              rateBps,
-            })}
+          referralRelationshipId: String(relationship.id),
+          referralCommissionId: String(commission.id),
+          referredUserId,
+          rateBps,
+        })}
           )
         `;
         await db`
@@ -1220,12 +1375,12 @@ export async function confirmSupportPaystackPayment(input: {
     sessionId: "",
   } as AuthContext, "payment.paystack_verified", "Paystack payment verified", {
     paymentId: updatedPayment.id,
-      paymentType: updatedPayment.payment_type,
-      reference: input.reference,
-      paystackStatus: data.status,
-      verifiedAmount,
-      totalAmount,
-      aggregateStatus,
+    paymentType: updatedPayment.payment_type,
+    reference: input.reference,
+    paystackStatus: data.status,
+    verifiedAmount,
+    totalAmount,
+    aggregateStatus,
   });
 
   await accrueReferralReward(updatedPayment);
@@ -1234,10 +1389,10 @@ export async function confirmSupportPaystackPayment(input: {
   if (recipient) {
     const deadlineLabel = payment.request_deadline_at
       ? new Date(payment.request_deadline_at).toLocaleString("en-GB", {
-          timeZone: DEFAULT_SUPPORT_TIMEZONE,
-          dateStyle: "medium",
-          timeStyle: "short",
-        })
+        timeZone: DEFAULT_SUPPORT_TIMEZONE,
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
       : "the agreed deadline";
     void sendSupportEmail(
       recipient,

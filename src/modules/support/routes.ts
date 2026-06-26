@@ -739,9 +739,7 @@ export const supportRoutes = new Elysia({
         ),
         gmailConfigured: Boolean(env.n8nGmailSendWebhookUrl),
         whatsappConfigured: Boolean(
-          env.twilioAccountSid &&
-            env.twilioAuthToken &&
-            env.twilioWhatsAppFrom,
+          env.wahaBaseUrl && env.wahaApiKey,
         ),
         uploadthingConfigured: uploadthingConfigured(),
       },
@@ -1696,7 +1694,7 @@ export const supportRoutes = new Elysia({
       mode: paystackService.getMode(),
       hostedCheckoutChannels: "dashboard_enabled",
       message:
-      "Mobile money payments are started from the CogniZap payment dialog. Card and bank checkout remains available as a secure fallback.",
+        "Mobile money payments are started from the CogniZap payment dialog. Card and bank checkout remains available as a secure fallback.",
     }),
   )
   .post("/paystack/webhook", async ({ request, headers, set }) => {
@@ -1890,12 +1888,12 @@ export const supportRoutes = new Elysia({
               UPDATE paystack_transactions
               SET status = 'cancelled',
                 metadata = COALESCE(metadata, '{}'::jsonb) || ${tx.json({
-                  cancelledAt: new Date().toISOString(),
-                  cancelledBy: auth.userId,
-                  cancelReason: "mobile_money_attempt_replaced",
-                  replacedByProvider: provider,
-                  replacedByPhoneLast4: phone.slice(-4),
-                })}::jsonb,
+              cancelledAt: new Date().toISOString(),
+              cancelledBy: auth.userId,
+              cancelReason: "mobile_money_attempt_replaced",
+              replacedByProvider: provider,
+              replacedByPhoneLast4: phone.slice(-4),
+            })}::jsonb,
                 updated_at = NOW()
               WHERE provider_reference = ${staleReference}
                 AND support_request_id = ${supportRequest.id}
@@ -1971,11 +1969,11 @@ export const supportRoutes = new Elysia({
           ${supportRequest.workspace_id ?? null}, ${supportRequest.id}, ${payment.id}, ${auth.userId},
           'support_payment', ${amount}, ${String(supportRequest.currency ?? "GHS")},
           ${reference}, 'pending', ${db.json({
-            ...metadata,
-            phoneLast4: phone.slice(-4),
-            phoneHash,
-            pendingStep,
-          })}
+        ...metadata,
+        phoneLast4: phone.slice(-4),
+        phoneHash,
+        pendingStep,
+      })}
         )
         ON CONFLICT (provider, provider_reference) DO NOTHING
       `;
@@ -2246,7 +2244,7 @@ export const supportRoutes = new Elysia({
       const db = getDb();
       const reference = String(body.reference ?? "").trim();
       const otp = String(body.otp ?? "").trim();
-      
+
       if (!reference) {
         throw new HttpError(400, "reference_required", "Payment reference is required");
       }
@@ -2264,7 +2262,7 @@ export const supportRoutes = new Elysia({
         ORDER BY p.created_at DESC
         LIMIT 1
       `;
-      
+
       if (!payment) {
         throw new HttpError(404, "payment_not_found", "Payment not found");
       }
@@ -2655,10 +2653,23 @@ export const supportRoutes = new Elysia({
     const threadId = String(form.get("threadId") ?? "").trim() || null;
     const milestoneId = String(form.get("milestoneId") ?? form.get("milestone_id") ?? "").trim();
     const purpose = String(form.get("purpose") ?? "client_upload");
+    const submissionRoundRaw = String(form.get("submissionRound") ?? form.get("submission_round") ?? "").trim();
     const files = form
       .getAll("files")
       .concat(form.getAll("file"))
       .filter((file): file is File => file instanceof File);
+
+    // Determine the submission round for milestone uploads
+    let fileSubmissionRound = 1;
+    if (milestoneId && submissionRoundRaw) {
+      fileSubmissionRound = Math.max(1, Number(submissionRoundRaw) || 1);
+    } else if (milestoneId) {
+      const [ms] = await db`
+        SELECT submission_round FROM request_milestones
+        WHERE id = ${milestoneId}::uuid LIMIT 1
+      `;
+      fileSubmissionRound = Math.max(1, Number(ms?.submission_round ?? 1));
+    }
 
     let existingFileCount = 0;
     let targetUserId = auth.userId;
@@ -2726,11 +2737,11 @@ export const supportRoutes = new Elysia({
       const buffer = Buffer.from(await file.arrayBuffer());
       const [row] = await db`
         INSERT INTO support_files (
-          request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose
+          request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round
         )
         VALUES (
           ${requestId}, NULLIF(${milestoneId}, '')::uuid, ${targetUserId}, ${file.name}, '', ${file.type || "application/octet-stream"},
-          ${file.size}, ${buffer.toString("base64")}, ${purpose}
+          ${file.size}, ${buffer.toString("base64")}, ${purpose}, ${milestoneId ? fileSubmissionRound : 1}
         )
         RETURNING *
       `;
@@ -2747,10 +2758,12 @@ export const supportRoutes = new Elysia({
           auth,
           eventType: "uploaded",
           fileName: String(synced.file_name ?? file.name),
+          submissionRound: fileSubmissionRound,
           metadata: {
             purpose,
             fileType: synced.file_type ?? file.type,
             fileSize: Number(synced.file_size ?? file.size),
+            submissionRound: fileSubmissionRound,
           },
         });
       }
@@ -3351,6 +3364,63 @@ export const supportRoutes = new Elysia({
     await invalidateProviderSupportCache();
     return ok({ data: toCamel(milestone), message: "Milestone accepted" });
   })
+  .get("/client/requests/:id/milestones/:milestoneId", async ({ headers, params }) => {
+    const auth = await resolveAuth(headers);
+    const db = getDb();
+    const [row] = await db`
+      SELECT m.*,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM support_files f
+          WHERE f.milestone_id = m.id
+        ), 0) AS file_count,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM support_revisions rv
+          WHERE rv.milestone_id = m.id
+        ), 0) AS revision_request_count,
+        latest_revision.reason AS latest_revision_reason,
+        latest_revision.revision_message AS latest_revision_message,
+        latest_revision.status AS latest_revision_status,
+        latest_revision.created_at AS latest_revision_at
+      FROM request_milestones m
+      INNER JOIN support_requests r ON r.id = m.request_id
+      LEFT JOIN LATERAL (
+        SELECT rv.reason, rv.revision_message, rv.status, rv.created_at
+        FROM support_revisions rv
+        WHERE rv.milestone_id = m.id
+        ORDER BY rv.created_at DESC
+        LIMIT 1
+      ) latest_revision ON TRUE
+      WHERE m.id = ${params.milestoneId}::uuid
+        AND m.request_id = ${params.id}::uuid
+        AND r.user_key_id = ${auth.userId}
+      LIMIT 1
+    `;
+    if (!row) throw new HttpError(404, "milestone_not_found", "Milestone not found");
+    const data = {
+      ...toCamel(row),
+      files: await getMilestoneFiles(String(row.id)),
+    };
+    return ok({ data });
+  })
+  .get("/client/requests/:id/milestones/:milestoneId/history", async ({ headers, params }) => {
+    const auth = await resolveAuth(headers);
+    const db = getDb();
+    const [row] = await db`
+      SELECT m.id
+      FROM request_milestones m
+      INNER JOIN support_requests r ON r.id = m.request_id
+      WHERE m.id = ${params.milestoneId}::uuid
+        AND m.request_id = ${params.id}::uuid
+        AND r.user_key_id = ${auth.userId}
+      LIMIT 1
+    `;
+    if (!row) throw new HttpError(404, "milestone_not_found", "Milestone not found");
+    const { getMilestoneHistory } = await import("./shared");
+    const history = await getMilestoneHistory(String(params.milestoneId));
+    return ok({ data: history });
+  })
   .get(
     "/client/requests/:id/download",
     async ({ headers, params, query }) => {
@@ -3447,7 +3517,7 @@ export const supportRoutes = new Elysia({
       // Validate milestone if provided
       if (milestoneId) {
         const [milestone] = await db`
-          SELECT id, status FROM request_milestones
+          SELECT id, status, submission_round FROM request_milestones
           WHERE id = ${milestoneId}::uuid AND request_id = ${params.id}::uuid
           LIMIT 1
         `;
@@ -3464,9 +3534,19 @@ export const supportRoutes = new Elysia({
         ? "new_project_detected"
         : "admin_review_required";
 
+      // Get the current submission round for the milestone
+      let revisionRound = 1;
+      if (milestoneId) {
+        const [ms] = await db`
+          SELECT submission_round FROM request_milestones
+          WHERE id = ${milestoneId}::uuid LIMIT 1
+        `;
+        revisionRound = Number(ms?.submission_round ?? 1);
+      }
+
       const [revision] = await db`
         INSERT INTO support_revisions (
-          request_id, milestone_id, user_key_id, reason, revision_message, revision_scope_status, status
+          request_id, milestone_id, user_key_id, reason, revision_message, revision_scope_status, status, submission_round
         )
         VALUES (
           ${params.id}::uuid,
@@ -3475,7 +3555,8 @@ export const supportRoutes = new Elysia({
           ${reason},
           ${body.message},
           ${scopeStatus},
-          'submitted'
+          'submitted',
+          ${revisionRound}
         )
         RETURNING *
       `;
@@ -3527,7 +3608,8 @@ export const supportRoutes = new Elysia({
             milestoneId: String(updatedMilestone.id),
             auth,
             eventType: "revision_requested",
-            metadata: { revisionId: revision.id, reason, scopeStatus },
+            submissionRound: revisionRound,
+            metadata: { revisionId: revision.id, reason, scopeStatus, submissionRound: revisionRound },
           });
           const refreshedMessages = await refreshMilestoneCardMessages(params.id, String(updatedMilestone.id));
           if (refreshedMessages.length > 0) {
