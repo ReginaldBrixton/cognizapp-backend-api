@@ -80,6 +80,14 @@ const ALLOWED_SUPPORT_UPLOAD_MIME_TYPES = new Set([
   "image/webp",
   "application/zip",
   "application/x-zip-compressed",
+  // Audio (voice notes)
+  "audio/webm",
+  "audio/ogg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/x-m4a",
+  "audio/aac",
 ]);
 
 function isPreviewSupportDelivery(delivery: Record<string, any>) {
@@ -177,6 +185,13 @@ const ALLOWED_SUPPORT_UPLOAD_EXTENSIONS = new Set([
   "png",
   "webp",
   "zip",
+  // Audio (voice notes)
+  "webm",
+  "mp3",
+  "wav",
+  "ogg",
+  "m4a",
+  "aac",
 ]);
 
 function isRequestBodyParseError(error: unknown) {
@@ -2654,6 +2669,9 @@ export const supportRoutes = new Elysia({
     const milestoneId = String(form.get("milestoneId") ?? form.get("milestone_id") ?? "").trim();
     const purpose = String(form.get("purpose") ?? "client_upload");
     const submissionRoundRaw = String(form.get("submissionRound") ?? form.get("submission_round") ?? "").trim();
+    // Voice note metadata (optional, sent by the voice recorder)
+    const voiceNoteDuration = String(form.get("duration") ?? "").trim();
+    const isVoiceNote = String(form.get("isVoiceNote") ?? "").trim() === "true";
     const files = form
       .getAll("files")
       .concat(form.getAll("file"))
@@ -2735,13 +2753,15 @@ export const supportRoutes = new Elysia({
     const uploaded = [];
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
+      const filePurpose = isVoiceNote ? "voice_note" : purpose;
       const [row] = await db`
         INSERT INTO support_files (
-          request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round
+          request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round, is_voice_note, duration_seconds
         )
         VALUES (
           ${requestId}, NULLIF(${milestoneId}, '')::uuid, ${targetUserId}, ${file.name}, '', ${file.type || "application/octet-stream"},
-          ${file.size}, ${buffer.toString("base64")}, ${purpose}, ${milestoneId ? fileSubmissionRound : 1}
+          ${file.size}, ${buffer.toString("base64")}, ${filePurpose}, ${milestoneId ? fileSubmissionRound : 1},
+          ${isVoiceNote}, ${voiceNoteDuration ? Number(voiceNoteDuration) || null : null}
         )
         RETURNING *
       `;
