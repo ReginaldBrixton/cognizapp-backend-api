@@ -2756,6 +2756,7 @@ export const supportRoutes = new Elysia({
       const filePurpose = isVoiceNote ? "voice_note" : purpose;
       let row: any;
       try {
+        // Try with voice note columns first
         [row] = await db`
           INSERT INTO support_files (
             request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round, is_voice_note, duration_seconds
@@ -2768,12 +2769,27 @@ export const supportRoutes = new Elysia({
           RETURNING *
         `;
       } catch (insertErr: any) {
-        console.error("[upload:insert-error]", {
-          message: insertErr?.message,
-          code: insertErr?.code,
-          detail: insertErr?.detail,
-        });
-        throw insertErr;
+        // Fallback: insert without voice note columns (migration may not have run yet)
+        if (insertErr?.code === "42703") {
+          console.warn("[upload] Voice note columns not found, falling back to basic insert");
+          [row] = await db`
+            INSERT INTO support_files (
+              request_id, milestone_id, user_key_id, file_name, file_url, file_type, file_size, content_base64, purpose, submission_round
+            )
+            VALUES (
+              ${requestId}, NULLIF(${milestoneId}, '')::uuid, ${targetUserId}, ${file.name}, '', ${file.type || "application/octet-stream"},
+              ${file.size}, ${buffer.toString("base64")}, ${filePurpose}, ${milestoneId ? fileSubmissionRound : 1}
+            )
+            RETURNING *
+          `;
+        } else {
+          console.error("[upload:insert-error]", {
+            message: insertErr?.message,
+            code: insertErr?.code,
+            detail: insertErr?.detail,
+          });
+          throw insertErr;
+        }
       }
       const fileUrl = `/api/support/files/${row.id}/download`;
       const [updated] = await db`
