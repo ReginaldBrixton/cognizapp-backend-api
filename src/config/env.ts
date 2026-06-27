@@ -239,14 +239,12 @@ function createEnv(): AppEnv {
       );
     }
     if (!envObj.testAuthBypassEmail) {
-      throw new Error(
-        "TEST_AUTH_BYPASS_EMAIL is required when test auth bypass is enabled",
-      );
+      throw new Error("TEST_AUTH_BYPASS_EMAIL is required when test auth bypass is enabled");
     }
     if (envObj.vercelEnv === "production") {
       console.warn(
         "[security] TEST_AUTH_BYPASS_ENABLED is set on production. " +
-        "Remove this env var to disable the test auth bypass.",
+          "Remove this env var to disable the test auth bypass.",
       );
     }
   }

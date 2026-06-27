@@ -13,5 +13,5 @@ export function handleRouteError(context: any) {
   }
   console.error("[route] Error:", error);
   set.status = 500;
-  return { success: false, error: String(error) };
+  return { success: false, error: "Internal server error", errorCode: "internal_error" };
 }

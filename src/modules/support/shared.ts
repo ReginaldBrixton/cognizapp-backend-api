@@ -245,6 +245,52 @@ export function canSeeProvider(auth: AuthContext) {
   );
 }
 
+// ── Scope multipliers (mirrors cost-estimation.ts) ───────────────────────────
+
+const URGENCY_MULTIPLIERS = [
+  { maxDays: 3, multiplier: 1.5 },
+  { maxDays: 7, multiplier: 1.25 },
+  { maxDays: 14, multiplier: 1.1 },
+  { maxDays: Infinity, multiplier: 1 },
+];
+
+const ACADEMIC_LEVEL_MULTIPLIERS: Record<string, number> = {
+  undergraduate: 1,
+  bachelor: 1,
+  master: 1.2,
+  masters: 1.2,
+  graduate: 1.2,
+  phd: 1.4,
+  doctorate: 1.4,
+  doctoral: 1.4,
+};
+
+const BASE_PAGES = 10;
+const BASE_WORDS = 2750;
+const PAGE_INCREMENT = 5;
+const PAGE_INCREMENT_MULTIPLIER = 0.1;
+
+function urgencyMultiplier(deadlineAt?: string): number {
+  if (!deadlineAt) return 1;
+  const deadline = new Date(deadlineAt);
+  if (Number.isNaN(deadline.getTime())) return 1;
+  const days = (deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  const tier = URGENCY_MULTIPLIERS.find((t) => days <= t.maxDays);
+  return tier?.multiplier ?? 1;
+}
+
+function academicLevelMultiplier(level?: string): number {
+  const key = (level || "").toLowerCase().trim();
+  return ACADEMIC_LEVEL_MULTIPLIERS[key] ?? 1;
+}
+
+function pageCountMultiplier(pages?: number, wordCount?: number): number {
+  const effectivePages = pages ?? (wordCount ? Math.ceil(wordCount / BASE_WORDS) : 0);
+  if (!effectivePages || effectivePages <= BASE_PAGES) return 1;
+  const increments = Math.floor((effectivePages - BASE_PAGES) / PAGE_INCREMENT);
+  return 1 + increments * PAGE_INCREMENT_MULTIPLIER;
+}
+
 export function calculatePaymentAmount(body: Record<string, any>) {
   const serviceTags = Array.isArray(body.serviceTags) ? body.serviceTags.map(String) : [];
   if (serviceTags.includes("assignment") || body.serviceCategory === "assignment") return 10;
@@ -252,8 +298,15 @@ export function calculatePaymentAmount(body: Record<string, any>) {
   const pricedTags = serviceTags.filter((tag) => SERVICE_STARTING_PRICES[tag] !== undefined);
   if (pricedTags.length > 0) {
     const basePrice = pricedTags.reduce((sum, tag) => sum + (SERVICE_STARTING_PRICES[tag] ?? 0), 0);
-    const discount = roundMoney(basePrice * LAUNCH_DISCOUNT_RATE);
-    return Math.max(0, roundMoney(basePrice - discount));
+
+    // Apply scope multipliers
+    const urgency = urgencyMultiplier(body.deadlineAt);
+    const acad = academicLevelMultiplier(body.academicLevel);
+    const pages = pageCountMultiplier(body.pages, body.wordCount);
+
+    const multiplied = basePrice * urgency * acad * pages;
+    const discount = roundMoney(multiplied * LAUNCH_DISCOUNT_RATE);
+    return Math.max(0, roundMoney(multiplied - discount));
   }
 
   const estimate = body.costEstimate && typeof body.costEstimate === "object" ? body.costEstimate : null;

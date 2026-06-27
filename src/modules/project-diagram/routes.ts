@@ -51,18 +51,12 @@ const BatchBody = t.Object({
 export const diagramRoutes = new Elysia({ prefix: "/api/workspace/:workspaceId/projects/:projectId/diagrams", tags: ["project-diagrams"] })
   .onError(handleRouteError)
   .get("/", async ({ headers, params, query }) => {
-    console.log("[diagrams] GET / - workspaceId:", params.workspaceId, "projectId:", params.projectId, "filter:", JSON.stringify(query));
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {
-      console.log("[diagrams] Invalid UUID");
       throw new HttpError(400, "invalid_uuid", "Invalid ID");
     }
     const auth = await resolveAuth(headers as any);
-    console.log("[diagrams] Auth resolved - userId:", auth.userId);
     const filter = sanitizeInput(query) as Record<string, unknown>;
-    console.log("[diagrams] Calling service...");
-    const result = await diagramService.listDiagrams(auth.userId, params.workspaceId, params.projectId, filter as any);
-    console.log("[diagrams] Result:", JSON.stringify(result).substring(0, 200));
-    return result;
+    return await diagramService.listDiagrams(auth.userId, params.workspaceId, params.projectId, filter as any);
   }, { query: DiagramFilterQuery })
   .post("/", async ({ headers, params, body }) => {
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {

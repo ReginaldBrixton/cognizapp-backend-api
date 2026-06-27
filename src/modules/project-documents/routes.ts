@@ -57,23 +57,12 @@ const BatchBody = t.Object({
 export const documentRoutes = new Elysia({ prefix: "/api/workspace/:workspaceId/projects/:projectId/documents", tags: ["project-documents"] })
   .onError(handleRouteError)
   .get("/", async ({ headers, params, query }) => {
-    console.log("[documents] GET / - workspaceId:", params.workspaceId, "projectId:", params.projectId, "filter:", JSON.stringify(query));
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {
-      console.log("[documents] Invalid UUID - workspaceId:", params.workspaceId, "projectId:", params.projectId);
       throw new HttpError(400, "invalid_uuid", "Invalid ID");
     }
-    try {
-      const auth = await resolveAuth(headers as any);
-      console.log("[documents] Auth resolved - userId:", auth.userId);
-      const filter = sanitizeInput(query) as Record<string, unknown>;
-      console.log("[documents] Calling service with filter:", JSON.stringify(filter));
-      const result = await documentService.listDocuments(auth.userId, params.workspaceId, params.projectId, filter as any);
-      console.log("[documents] Result:", JSON.stringify(result).substring(0, 200));
-      return result;
-    } catch (err) {
-      console.error("[documents] Full error:", err);
-      throw err;
-    }
+    const auth = await resolveAuth(headers as any);
+    const filter = sanitizeInput(query) as Record<string, unknown>;
+    return await documentService.listDocuments(auth.userId, params.workspaceId, params.projectId, filter as any);
   }, { query: DocumentFilterQuery })
   .post("/", async ({ headers, params, body }) => {
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {

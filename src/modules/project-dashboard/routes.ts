@@ -15,22 +15,22 @@ export const projectDashboardRoutes = new Elysia({ prefix: "/api/workspace/:work
       set.status = error.status;
       return { success: false, error: error.message, errorCode: error.code };
     }
+    if (code === "VALIDATION") {
+      set.status = 400;
+      return { success: false, error: "Invalid request body", errorCode: "invalid_request" };
+    }
     console.error("[project-dashboard] Error:", error);
+    set.status = 500;
+    return { success: false, error: "Internal server error", errorCode: "internal_error" };
   })
   .get("/dashboard", async ({ headers, params, query }) => {
-    console.log("[dashboard] GET /dashboard - workspaceId:", params.workspaceId, "projectId:", params.projectId);
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {
-      console.log("[dashboard] Invalid UUID");
       throw new HttpError(400, "invalid_uuid", "Invalid ID");
     }
     const auth = await resolveAuth(headers as any);
-    console.log("[dashboard] Auth resolved - userId:", auth.userId);
-
-    console.log("[dashboard] Calling projectService.getProject...");
     const project = await projectService.getProject(auth.userId, params.workspaceId, params.projectId);
-    console.log("[dashboard] Project loaded:", project.id, "title:", project.title);
 
-    const result = ok({
+    return ok({
       project,
       stats: {
         documentCount: project.documentCount || 0,
@@ -39,6 +39,4 @@ export const projectDashboardRoutes = new Elysia({ prefix: "/api/workspace/:work
       },
       recentActivity: [],
     });
-    console.log("[dashboard] Result:", JSON.stringify(result).substring(0, 200));
-    return result;
   });

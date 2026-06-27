@@ -83,18 +83,15 @@ export const workspaceRoutes = new Elysia({
     }
     console.error("[workspace] Error:", error);
     set.status = 500;
-    return { success: false, error: String(error) };
+    return { success: false, error: "Internal server error", errorCode: "internal_error" };
   })
   .get("/", async ({ headers, query }) => {
-    console.log("[workspace] GET /");
     const auth = await resolveAuth(headers as any);
-    console.log("[workspace] Auth resolved - userId:", auth.userId);
     const result = await cache.rememberJson(
       workspaceListCacheKey(auth.userId),
       WORKSPACE_LIST_CACHE_SECONDS,
       () => workspaceService.listWorkspaces(auth.userId, auth),
     );
-    console.log("[workspace] Result:", result.workspaces?.length || 0, "workspaces");
     const page = toPage(
       typeof query.page === "string" ? query.page : undefined,
       1,

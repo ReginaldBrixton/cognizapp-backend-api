@@ -37,18 +37,12 @@ const BatchBody = t.Object({
 export const slideRoutes = new Elysia({ prefix: "/api/workspace/:workspaceId/projects/:projectId/slides", tags: ["project-slides"] })
   .onError(handleRouteError)
   .get("/", async ({ headers, params, query }) => {
-    console.log("[slides] GET / - workspaceId:", params.workspaceId, "projectId:", params.projectId, "filter:", JSON.stringify(query));
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {
-      console.log("[slides] Invalid UUID");
       throw new HttpError(400, "invalid_uuid", "Invalid ID");
     }
     const auth = await resolveAuth(headers as any);
-    console.log("[slides] Auth resolved - userId:", auth.userId);
     const filter = sanitizeInput(query) as Record<string, unknown>;
-    console.log("[slides] Calling service...");
-    const result = await slideService.listSlides(auth.userId, params.workspaceId, params.projectId, filter as any);
-    console.log("[slides] Result:", JSON.stringify(result).substring(0, 200));
-    return result;
+    return await slideService.listSlides(auth.userId, params.workspaceId, params.projectId, filter as any);
   }, { query: SlideFilterQuery })
   .post("/", async ({ headers, params, body }) => {
     if (!isValidUuid(params.workspaceId) || !isValidUuid(params.projectId)) {

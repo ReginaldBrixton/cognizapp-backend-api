@@ -26,19 +26,14 @@ export const projectRoutes = new Elysia({ prefix: "/api/workspace/:workspaceId/p
     }
     console.error("[projects] Error:", error);
     set.status = 500;
-    return { success: false, error: String(error) };
+    return { success: false, error: "Internal server error", errorCode: "internal_error" };
   })
   .get("/", async ({ headers, params }) => {
-    console.log("[projects] GET / - workspaceId:", params.workspaceId);
     if (!isValidUuid(params.workspaceId)) {
       throw new HttpError(400, "invalid_uuid", "Invalid workspace ID");
     }
     const auth = await resolveAuth(headers as any);
-    console.log("[projects] Auth resolved - userId:", auth.userId);
-
-    const result = await projectService.listProjects(auth.userId, params.workspaceId);
-    console.log("[projects] Result:", result.length, "projects");
-    return result;
+    return await projectService.listProjects(auth.userId, params.workspaceId);
   })
   .post("/", async ({ headers, params, body }) => {
     if (!isValidUuid(params.workspaceId)) {

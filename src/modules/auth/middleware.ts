@@ -51,7 +51,7 @@ export async function resolveAuth(headers: Headers | Record<string, string | und
   ) {
     const db = getDb();
     const [row] = await db`
-      SELECT * FROM users WHERE lower(email) = ${env.testAuthBypassEmail}
+      SELECT * FROM auth.users WHERE lower(email) = ${env.testAuthBypassEmail}
       LIMIT 1
     `;
     if (!row) {
