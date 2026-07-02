@@ -142,7 +142,7 @@ export async function resolveAuth(headers: Headers | Record<string, string | und
     sessionId: claims.sessionId,
     user,
   };
-  await cache.setJson(cacheKey, authContext, 30);
+  await cache.setJson(cacheKey, authContext, 120);
   return authContext;
 }
 

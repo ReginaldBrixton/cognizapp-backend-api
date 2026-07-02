@@ -4,7 +4,7 @@ import { env } from "../../../config/env";
 import { hashToken, safeEqualString } from "../../../lib/crypto";
 import { emailDelivery } from "../../../lib/email-delivery";
 import { HttpError } from "../../../lib/errors";
-import { getDb } from "../../../lib/db";
+import { getDb, withDbRetry } from "../../../lib/db";
 import { normalizeEmail } from "../helpers";
 import { otpRepository } from "./otp-repository";
 import {
@@ -94,13 +94,13 @@ export const otpService = {
   async requestOtp(emailInput: string, ipAddress: string, userAgent: string, requirePrivilegedAccess = false, selectedRole?: string) {
     const email = this.validateEmail(emailInput);
     const selectedPortalRole = normalizeSelectedPrivilegedRole(selectedRole);
-    await otpRepository.cleanupExpiredCodes();
+    await withDbRetry(() => otpRepository.cleanupExpiredCodes());
 
     if (requirePrivilegedAccess || selectedPortalRole) {
       await assertEmailHasPrivilegedGrant(email, selectedPortalRole);
     }
 
-    const lastSent = await otpRepository.getLastSentCode(email);
+    const lastSent = await withDbRetry(() => otpRepository.getLastSentCode(email));
     if (lastSent) {
       const elapsedSeconds = Math.floor((Date.now() - lastSent.lastSentAt.getTime()) / 1000);
       if (elapsedSeconds < env.otpResendCooldownSeconds) {
@@ -110,19 +110,19 @@ export const otpService = {
       }
     }
 
-    const recentCount = await otpRepository.countRecentRequests(email, ipAddress, new Date(Date.now() - 60_000));
+    const recentCount = await withDbRetry(() => otpRepository.countRecentRequests(email, ipAddress, new Date(Date.now() - 60_000)));
     if (recentCount >= env.otpRateLimitPerMinute) {
       throw new HttpError(429, "otp_rate_limited", "Too many login code requests. Please try again soon.");
     }
 
     const code = this.generateOtpCode();
-    await otpRepository.createOtpCode({
+    await withDbRetry(() => otpRepository.createOtpCode({
       email,
       codeHash: this.hashOtpCode(code),
       expiresAt: new Date(Date.now() + env.otpCodeExpiryMinutes * 60 * 1000),
       ipAddress,
       userAgent,
-    });
+    }));
 
     try {
       await this.sendOtpEmail(email, code, ipAddress, userAgent);
@@ -170,7 +170,7 @@ export const otpService = {
       throw new HttpError(400, "invalid_otp_code", "Enter the 6-digit login code");
     }
 
-    const activeCodes = await otpRepository.getActiveOtpCodes(email);
+    const activeCodes = await withDbRetry(() => otpRepository.getActiveOtpCodes(email));
     if (activeCodes.length === 0) {
       throw new HttpError(401, "otp_not_found", "Login code is invalid or expired");
     }
@@ -184,7 +184,7 @@ export const otpService = {
     const matchingCode = availableCodes.find((activeCode) => safeEqualString(activeCode.codeHash, codeHash));
     if (!matchingCode) {
       const newestCode = availableCodes[0];
-      const updated = await otpRepository.incrementOtpAttempts(newestCode.id);
+      const updated = await withDbRetry(() => otpRepository.incrementOtpAttempts(newestCode.id));
       const attemptsRemaining = Math.max(env.otpMaxAttempts - (updated?.attempts ?? newestCode.attempts + 1), 0);
       throw new HttpError(401, "invalid_otp_code", "Login code is invalid or expired", { attemptsRemaining });
     }
@@ -193,8 +193,8 @@ export const otpService = {
       await assertEmailHasPrivilegedGrant(email, selectedPortalRole);
     }
 
-    await otpRepository.markOtpVerified(matchingCode.id);
-    await otpRepository.markOtherActiveCodesVerified(email, matchingCode.id);
+    await withDbRetry(() => otpRepository.markOtpVerified(matchingCode.id));
+    await withDbRetry(() => otpRepository.markOtherActiveCodesVerified(email, matchingCode.id));
     return userAuthService.loginWithEmailOtp(email, headers, {
       ipAddress,
       userAgent,

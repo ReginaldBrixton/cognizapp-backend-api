@@ -254,8 +254,24 @@ export const authRepository = {
       { sessionId, userId },
       () => db`
         SELECT
-          to_jsonb(s.*) AS session,
-          to_jsonb(u.*) AS user
+          s.id, s.user_id, s.email, s.role, s.token_hash, s.refresh_token_hash,
+          s.expires_at, s.refresh_expires_at, s.ip_address, s.user_agent,
+          s.device_fingerprint, s.device_name, s.device_type, s.browser, s.os,
+          s.is_revoked, s.revoked_at, s.revoked_reason, s.reuse_detected_at,
+          s.created_at, s.last_active,
+          u.id AS u_id, u.email AS u_email, u.phone AS u_phone,
+          u.email_verified AS u_email_verified, u.phone_verified AS u_phone_verified,
+          u.role AS u_role, u.status AS u_status, u.banned_until AS u_banned_until,
+          u.is_anonymous AS u_is_anonymous, u.is_sso_user AS u_is_sso_user,
+          u.display_name AS u_display_name, u.full_name AS u_full_name,
+          u.avatar_url AS u_avatar_url, u.raw_app_meta_data AS u_raw_app_meta_data,
+          u.raw_user_meta_data AS u_raw_user_meta_data, u.providers AS u_providers,
+          u.provider AS u_provider, u.provider_uid AS u_provider_uid,
+          u.identity_data AS u_identity_data, u.permissions AS u_permissions,
+          u.created_at AS u_created_at, u.updated_at AS u_updated_at,
+          u.confirmed_at AS u_confirmed_at, u.last_sign_in_at AS u_last_sign_in_at,
+          u.login_count AS u_login_count, u.failed_logins AS u_failed_logins,
+          u.locked_until AS u_locked_until
         FROM auth.sessions s
         INNER JOIN auth.users u ON u.id = s.user_id
         WHERE s.id = ${sessionId}
@@ -268,8 +284,32 @@ export const authRepository = {
       return null;
     }
     return {
-      session: parseSession(row.session as Record<string, unknown>),
-      user: parseUser(row.user as Record<string, unknown>),
+      session: parseSession({
+        id: row.id, user_id: row.user_id, email: row.email, role: row.role,
+        token_hash: row.token_hash, refresh_token_hash: row.refresh_token_hash,
+        expires_at: row.expires_at, refresh_expires_at: row.refresh_expires_at,
+        ip_address: row.ip_address, user_agent: row.user_agent,
+        device_fingerprint: row.device_fingerprint, device_name: row.device_name,
+        device_type: row.device_type, browser: row.browser, os: row.os,
+        is_revoked: row.is_revoked, revoked_at: row.revoked_at,
+        revoked_reason: row.revoked_reason, reuse_detected_at: row.reuse_detected_at,
+        created_at: row.created_at, last_active: row.last_active,
+      } as Record<string, unknown>),
+      user: parseUser({
+        id: row.u_id, email: row.u_email, phone: row.u_phone,
+        email_verified: row.u_email_verified, phone_verified: row.u_phone_verified,
+        role: row.u_role, status: row.u_status, banned_until: row.u_banned_until,
+        is_anonymous: row.u_is_anonymous, is_sso_user: row.u_is_sso_user,
+        display_name: row.u_display_name, full_name: row.u_full_name,
+        avatar_url: row.u_avatar_url, raw_app_meta_data: row.u_raw_app_meta_data,
+        raw_user_meta_data: row.u_raw_user_meta_data, providers: row.u_providers,
+        provider: row.u_provider, provider_uid: row.u_provider_uid,
+        identity_data: row.u_identity_data, permissions: row.u_permissions,
+        created_at: row.u_created_at, updated_at: row.u_updated_at,
+        confirmed_at: row.u_confirmed_at, last_sign_in_at: row.u_last_sign_in_at,
+        login_count: row.u_login_count, failed_logins: row.u_failed_logins,
+        locked_until: row.u_locked_until,
+      } as Record<string, unknown>),
     };
   },
 
