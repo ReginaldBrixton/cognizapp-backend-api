@@ -1539,10 +1539,20 @@ export function paymentAmountForType(request: Record<string, any>, paymentType: 
     0,
   );
   let computedAmount = baseAmount;
-  if (paymentType === "deposit" || paymentType === "full_payment") {
+  if (paymentType === "full_payment") {
     computedAmount = baseAmount;
+  } else if (paymentType === "deposit") {
+    computedAmount = roundMoney(
+      Number(request.deposit_amount ?? baseAmount) || baseAmount,
+    );
   } else if (paymentType === "final_balance" || paymentType === "partial_balance") {
-    computedAmount = 0;
+    const depositAmount = Number(request.deposit_amount ?? 0);
+    computedAmount = roundMoney(
+      Math.max(
+        Number(request.balance_amount ?? baseAmount - depositAmount),
+        0,
+      ),
+    );
   }
 
   if (paymentType === "partial_balance") {
