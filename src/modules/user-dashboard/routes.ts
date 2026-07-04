@@ -110,9 +110,9 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
           ...counters,
           members: memberCounts[String(w.id)] ?? counters.members ?? 0,
         },
-        last_activity_at: w.last_activity_at ?? null,
-        last_opened_at: w.last_opened_at ?? null,
-        created_at: String(w.created_at),
+        last_activity_at: w.last_activity_at ? new Date(w.last_activity_at as string).toISOString() : null,
+        last_opened_at: w.last_opened_at ? new Date(w.last_opened_at as string).toISOString() : null,
+        created_at: new Date(w.created_at as string).toISOString(),
       };
     });
 
@@ -141,8 +141,8 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       browser: s.browser ?? null,
       os: s.os ?? null,
       ip_address: s.ip_address ?? null,
-      last_active: s.last_active ?? null,
-      created_at: String(s.created_at),
+      last_active: s.last_active ? new Date(s.last_active as string).toISOString() : null,
+      created_at: new Date(s.created_at as string).toISOString(),
       is_current: String(s.id) === auth.sessionId,
     }));
 
@@ -172,12 +172,12 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       collaborators: Array.isArray(p.collaborators) ? p.collaborators : [],
       completion_pct: Number(p.completion_pct ?? 0),
-      deadline: p.deadline ? String(p.deadline) : null,
+      deadline: p.deadline ? new Date(p.deadline as string).toISOString() : null,
       document_count: Number(p.document_count ?? 0),
       task_count: Number(p.task_count ?? 0),
       completed_tasks: Number(p.completed_tasks ?? 0),
-      created_at: String(p.created_at),
-      updated_at: String(p.updated_at),
+      created_at: new Date(p.created_at as string).toISOString(),
+      updated_at: new Date(p.updated_at as string).toISOString(),
     }));
 
     // ── Collections ─────────────────────────────────────────────────────────
@@ -192,8 +192,8 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       parent_id: c.parent_id ? String(c.parent_id) : null,
       sort_order: Number(c.sort_order ?? 0),
       is_default: Boolean(c.is_default),
-      created_at: String(c.created_at),
-      updated_at: String(c.updated_at),
+      created_at: new Date(c.created_at as string).toISOString(),
+      updated_at: new Date(c.updated_at as string).toISOString(),
     }));
 
     // ── Analysis ────────────────────────────────────────────────────────────
@@ -207,8 +207,8 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       description: String(a.description ?? ""),
       status: String(a.status),
       confidence_score: a.confidence_score ? Number(a.confidence_score) : null,
-      created_at: String(a.created_at),
-      updated_at: String(a.updated_at),
+      created_at: new Date(a.created_at as string).toISOString(),
+      updated_at: new Date(a.updated_at as string).toISOString(),
     }));
 
     // ── Activity timeline ───────────────────────────────────────────────────
@@ -218,7 +218,7 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       workspace_name: String(a.workspace_name ?? ""),
       type: String(a.activity_type),
       description: String(a.description),
-      created_at: String(a.created_at),
+      created_at: new Date(a.created_at as string).toISOString(),
     }));
 
     // ── Recent activity ─────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       workspace_name: String(a.workspace_name ?? ""),
       type: String(a.type),
       description: String(a.description),
-      created_at: String(a.created_at),
+      created_at: new Date(a.created_at as string).toISOString(),
     }));
 
     // ── Recent notifications ────────────────────────────────────────────────
@@ -240,7 +240,7 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
       action_url: n.action_url ?? null,
       is_read: Boolean(n.is_read),
       priority: String(n.priority),
-      created_at: String(n.created_at),
+      created_at: new Date(n.created_at as string).toISOString(),
     }));
 
     const payload = {
@@ -437,4 +437,165 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
     };
     await cache.deletePattern(`user:${auth.userId}:dashboard*`);
     return ok(payload);
+  })
+
+  /**
+   * GET /api/user/activity/logs
+   *
+   * Fetches auth activity logs (login, registration, session events, etc.)
+   * with pagination and optional filtering.
+   */
+  .get("/activity/logs", async ({ headers, query }) => {
+    const auth = await resolveAuth(headers);
+    const page = Math.max(1, parseInt(String(query.page ?? "1"), 10));
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(query.pageSize ?? "20"), 10)));
+    const type = (query.type as string) || undefined;
+    const startDate = (query.start_date as string) || undefined;
+    const endDate = (query.end_date as string) || undefined;
+    const search = (query.search as string) || undefined;
+
+    const result = await dashboardRepository.getAuthActivityLogs(auth.userId, {
+      page,
+      pageSize,
+      type,
+      startDate,
+      endDate,
+      search,
+    });
+
+    const logs = result.logs.map((log: Record<string, unknown>) => ({
+      id: String(log.id),
+      user_id: String(log.user_id),
+      activity_type: String(log.activity_type),
+      description: String(log.description ?? ""),
+      session_id: log.session_id ? String(log.session_id) : null,
+      metadata: log.metadata ?? {},
+      created_at: new Date(log.created_at as string).toISOString(),
+    }));
+
+    return ok({
+      logs,
+      count: logs.length,
+      totalCount: result.totalCount,
+      page: result.page,
+      pageSize: result.pageSize,
+    });
+  })
+
+  /**
+   * POST /api/user/activity/log
+   *
+   * Logs a single activity event from the client-side activity tracker.
+   */
+  .post("/activity/log", async ({ headers, body }) => {
+    const auth = await resolveAuth(headers);
+    const b = (body ?? {}) as Record<string, unknown>;
+    const activityType = String(b.activity_type ?? "custom");
+    const description = String(b.description ?? "Activity logged");
+    const sessionId = b.session_id ? String(b.session_id) : null;
+    const metadata = (b.metadata as Record<string, unknown>) ?? {};
+
+    const log = await dashboardRepository.insertAuthActivityLog(
+      auth.userId,
+      activityType,
+      description,
+      sessionId,
+      metadata,
+    );
+
+    return ok({
+      id: String(log.id),
+      activity_type: log.activity_type,
+      description: log.description,
+      created_at: new Date(log.created_at as string).toISOString(),
+    });
+  })
+
+  /**
+   * GET /api/user/activity/stream
+   *
+   * Server-Sent Events stream that pushes new activity events in real time.
+   * The client connects with EventSource and receives:
+   *   - heartbeat events every 15s to keep the connection alive
+   *   - activity events whenever new rows appear in auth.activity_log
+   *
+   * Query params:
+   *   - since: ISO timestamp — only push events newer than this (optional)
+   */
+  .get("/activity/stream", async ({ headers, request, set }) => {
+    const auth = await resolveAuth(headers);
+    const url = new URL(request.url);
+    const sinceParam = url.searchParams.get("since");
+    let lastSeen = sinceParam ? new Date(sinceParam) : new Date();
+
+    const encoder = new TextEncoder();
+    let closed = false;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const sendEvent = (data: Record<string, unknown>) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            closed = true;
+          }
+        };
+
+        // Initial heartbeat so the client knows the connection is live
+        sendEvent({ type: "heartbeat", timestamp: new Date().toISOString() });
+
+        // Heartbeat every 15s
+        heartbeatTimer = setInterval(() => {
+          sendEvent({ type: "heartbeat", timestamp: new Date().toISOString() });
+        }, 15_000);
+
+        // Poll for new activity every 5s
+        pollTimer = setInterval(async () => {
+          if (closed) return;
+          try {
+            const result = await dashboardRepository.getAuthActivityLogs(auth.userId, {
+              page: 1,
+              pageSize: 10,
+              startDate: lastSeen.toISOString(),
+            });
+            if (result.logs.length > 0) {
+              for (const log of result.logs) {
+                const createdAt = new Date(log.created_at as string);
+                if (createdAt > lastSeen) lastSeen = createdAt;
+                sendEvent({
+                  id: String(log.id),
+                  type: String(log.activity_type),
+                  description: String(log.description ?? ""),
+                  createdAt: createdAt.toISOString(),
+                  metadata: log.metadata ?? {},
+                });
+              }
+            }
+          } catch {
+            // DB errors are non-fatal — just skip this poll cycle
+          }
+        }, 5_000);
+      },
+      cancel() {
+        closed = true;
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        if (pollTimer) clearInterval(pollTimer);
+      },
+    });
+
+    set.headers["Content-Type"] = "text/event-stream";
+    set.headers["Cache-Control"] = "no-cache, no-transform";
+    set.headers["Connection"] = "keep-alive";
+    set.headers["X-Accel-Buffering"] = "no";
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
   });

@@ -10,14 +10,31 @@ import { env } from "../config/env";
 // fires before it can reach the working IPv4 ones. By overriding dns.lookup to
 // filter to family 4 only, we ensure only IPv4 addresses are returned.
 const originalLookup = dns.lookup;
-dns.lookup = function (hostname, options, callback) {
+dns.lookup = ((
+  hostname: string,
+  options: dns.LookupOneOptions | dns.LookupAllOptions | dns.LookupOptions,
+  callback:
+    | ((err: NodeJS.ErrnoException | null, address: string, family: number) => void)
+    | ((err: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void),
+) => {
   if (typeof options === "function") {
-    callback = options;
+    callback = options as (
+      | ((err: NodeJS.ErrnoException | null, address: string, family: number) => void)
+      | ((err: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void)
+    );
     options = {};
   }
-  options = { ...options, family: 4 };
-  return originalLookup.call(this, hostname, options, callback);
-} as typeof dns.lookup;
+  const merged = { ...(options as dns.LookupOptions), family: 4 };
+  return originalLookup(
+    hostname,
+    merged as dns.LookupOneOptions,
+    callback as (
+      err: NodeJS.ErrnoException | null,
+      address: string,
+      family: number,
+    ) => void,
+  );
+}) as typeof dns.lookup;
 
 let dbInstance: Sql | null = null;
 
@@ -42,7 +59,7 @@ export function getDb() {
     transform: {
       undefined: null,
     },
-  });
+  } as postgres.Options<Record<string, never>> & { application_name: string });
 
   return dbInstance;
 }

@@ -220,6 +220,86 @@ export const dashboardRepository = {
     return rows;
   },
 
+  /**
+   * Fetch auth activity logs (login, registration, session events, etc.)
+   * Supports pagination and optional type filter.
+   */
+  async getAuthActivityLogs(
+    userId: string,
+    options: { page?: number; pageSize?: number; type?: string; startDate?: string; endDate?: string; search?: string } = {},
+  ) {
+    const db = getDb();
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
+    const offset = (page - 1) * pageSize;
+
+    // Build WHERE conditions array for dynamic filtering
+    const conditions: string[] = [`user_id = '${userId}'::uuid`];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (options.type) {
+      params.push(options.type);
+      conditions.push(`activity_type = $${paramIdx++}`);
+    }
+    if (options.startDate) {
+      params.push(options.startDate);
+      conditions.push(`created_at >= $${paramIdx++}::timestamptz`);
+    }
+    if (options.endDate) {
+      params.push(options.endDate);
+      conditions.push(`created_at <= $${paramIdx++}::timestamptz`);
+    }
+    if (options.search) {
+      params.push(`%${options.search}%`);
+      conditions.push(`description ILIKE $${paramIdx++}`);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Use raw query for dynamic WHERE clause
+    const rows = await db.unsafe(`
+      SELECT id, user_id, activity_type, description, session_id, metadata, created_at
+      FROM auth.activity_log
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `, params);
+
+    const countRows = await db.unsafe(`
+      SELECT COUNT(*)::int AS total
+      FROM auth.activity_log
+      WHERE ${whereClause}
+    `, params);
+
+    return {
+      logs: rows as any[],
+      totalCount: Number((countRows as any[])[0]?.total ?? 0),
+      page,
+      pageSize,
+    };
+  },
+
+  /**
+   * Insert a single auth activity log entry.
+   */
+  async insertAuthActivityLog(
+    userId: string,
+    activityType: string,
+    description: string,
+    sessionId: string | null = null,
+    metadata: Record<string, unknown> = {},
+  ) {
+    const db = getDb();
+    const metadataJson = db.json(metadata as any);
+    const rows = await db`
+      INSERT INTO auth.activity_log (user_id, activity_type, description, session_id, metadata)
+      VALUES (${userId}::uuid, ${activityType}, ${description}, ${sessionId}::uuid, ${metadataJson})
+      RETURNING id, activity_type, description, created_at
+    `;
+    return rows[0];
+  },
+
   // ── NEW: Get pre-computed dashboard stats from the user_dashboard_stats table ──
   async getContentOverviewStatsForUser(userId: string) {
     const db = getDb();

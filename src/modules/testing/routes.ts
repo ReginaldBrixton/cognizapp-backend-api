@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { env } from "../../config/env";
 
 const paystackCheckoutPage = Bun.file(new URL("./index.html", import.meta.url));
 
@@ -388,4 +389,87 @@ export const testingRoutes = new Elysia({ prefix: "/testing" })
       "Content-Type": "application/javascript; charset=utf-8",
       "Cache-Control": "no-store",
     },
-  }));
+  }))
+  /**
+   * GET /testing/api?path=<api_path>&method=<GET|POST|PUT|DELETE>&body=<json_string>
+   *
+   * Dev-only proxy that makes authenticated requests internally using the
+   * TEST_AUTH_BYPASS token and returns the result as **text/plain** so it
+   * can be consumed by tools that only read HTML/text (e.g. the rest-api-any
+   * MCP server's fetch_url tool which cannot set Authorization headers or
+   * read JSON responses).
+   *
+   * Only available when TEST_AUTH_BYPASS_ENABLED=true (dev mode).
+   *
+   * Examples:
+   *   /testing/api?path=/api/auth/me
+   *   /testing/api?path=/api/user/dashboard
+   *   /testing/api?path=/api/user/activity/log&method=POST&body={"activity_type":"page_view","description":"test"}
+   */
+  .get("/api", async ({ query, set }) => {
+    // Guard — only available when test bypass is enabled
+    if (!env.testAuthBypassEnabled) {
+      set.status = 403;
+      return new Response("Test auth bypass is not enabled", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    const path = (query.path as string) || "";
+    const method = ((query.method as string) || "GET").toUpperCase();
+    const body = query.body as string | undefined;
+
+    if (!path || !path.startsWith("/api/")) {
+      set.status = 400;
+      return new Response("Missing or invalid 'path' parameter (must start with /api/)", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    // Build the internal URL (same server)
+    const baseUrl = `http://localhost:${env.port}`;
+    const url = `${baseUrl}${path}`;
+
+    try {
+      const fetchOpts: RequestInit = {
+        method,
+        headers: {
+          "Authorization": `Bearer ${env.testAuthBypassToken}`,
+          "Content-Type": "application/json",
+        },
+      };
+
+      if (body && method !== "GET") {
+        fetchOpts.body = body;
+      }
+
+      const resp = await fetch(url, fetchOpts);
+      const text = await resp.text();
+
+      // Return as text/plain so the MCP fetch_url tool can read it
+      const output = [
+        `Status: ${resp.status} ${resp.statusText}`,
+        `Method: ${method}`,
+        `Path: ${path}`,
+        `Content-Type: ${resp.headers.get("content-type") || "unknown"}`,
+        "",
+        "─".repeat(60),
+        "",
+        text,
+      ].join("\n");
+
+      return new Response(output, {
+        status: 200, // always 200 so the MCP tool doesn't error
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return new Response(`Fetch error: ${errMsg}`, {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+  });
