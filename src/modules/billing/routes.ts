@@ -10,6 +10,8 @@ import { cache } from "../../lib/cache";
 import { resolveAuth, type AuthContext } from "../auth/middleware";
 import { workspaceRepository } from "../workspace/repository";
 
+const MOBILE_MONEY_ATTEMPT_TTL_SECONDS = 5 * 60;
+
 const DEFAULT_SUBSCRIPTION_PLANS = [
   {
     id: "free",
@@ -1270,6 +1272,337 @@ export const billingRoutes = new Elysia({
         message: result.activated
           ? "Subscription activated"
           : "Payment is not successful yet",
+      });
+    },
+    {
+      body: t.Object({ reference: t.String() }),
+    },
+  )
+  .post(
+    "/paystack/mobile-money",
+    async ({ headers, body }) => {
+      const auth = await resolveAuth(headers);
+      const db = getDb();
+      await ensureDefaultSubscriptionPlans();
+      const workspace = await resolveWorkspace(auth, body.workspaceId ?? null);
+      const planId = normalizeSubscriptionPlanId(body.planId);
+      const [plan] = await db`
+        SELECT * FROM subscription_plans
+        WHERE id = ${planId} AND is_active = TRUE
+        LIMIT 1
+      `;
+      if (!plan) {
+        throw new HttpError(404, "plan_not_found", "Subscription plan not found");
+      }
+      if (plan.id === "free") {
+        throw new HttpError(400, "free_plan_checkout_not_required", "The Free plan does not require checkout");
+      }
+
+      const phone = paystackService.normalizeMobileMoneyPhone(String(body.phone ?? ""));
+      if (!phone || phone.length < 9) {
+        throw new HttpError(400, "invalid_mobile_money_phone", "Enter a valid mobile money phone number");
+      }
+      const provider = paystackService.normalizeProvider(body.provider);
+      const phoneHash = paystackService.hashMobileMoneyPhone(phone);
+
+      const cycle = body.billingCycle ?? "monthly";
+      const existingSubscription = await getSubscription(String(workspace.id));
+      if (
+        existingSubscription &&
+        String(existingSubscription.status) === "active" &&
+        String(existingSubscription.plan_id) === String(plan.id) &&
+        String(existingSubscription.billing_cycle) === cycle &&
+        existingSubscription.cancel_at_period_end !== true
+      ) {
+        throw new HttpError(409, "subscription_already_active", "This workspace is already active on that plan and billing cycle");
+      }
+
+      const amount = Number(cycle === "yearly" ? plan.yearly_price : plan.monthly_price);
+      const currency = String(plan.currency ?? "GHS");
+
+      // Check for reusable pending transaction (same phone + provider)
+      const [pendingTx] = await db`
+        SELECT *,
+          GREATEST(
+            0,
+            ${MOBILE_MONEY_ATTEMPT_TTL_SECONDS} - FLOOR(EXTRACT(EPOCH FROM (NOW() - created_at)))
+          )::int AS expires_in_seconds
+        FROM paystack_transactions
+        WHERE workspace_id = ${workspace.id}::uuid
+          AND user_key_id = ${auth.userId}
+          AND plan_id = ${plan.id}
+          AND billing_cycle = ${cycle}
+          AND provider = 'paystack'
+          AND status = 'pending'
+          AND verified_at IS NULL
+          AND metadata->>'mobileMoneyProvider' = ${provider}
+          AND metadata->>'phoneHash' = ${phoneHash}
+          AND created_at > NOW() - (${MOBILE_MONEY_ATTEMPT_TTL_SECONDS} || ' seconds')::interval
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+      if (pendingTx) {
+        const reference = String(pendingTx.provider_reference);
+        const pendingStep = String(pendingTx.metadata?.pendingStep ?? "") === "otp" ? "otp" : "phone_authorization";
+        const expiresInSeconds = Math.max(1, Number(pendingTx.expires_in_seconds ?? MOBILE_MONEY_ATTEMPT_TTL_SECONDS));
+        return ok({
+          data: toCamel(pendingTx),
+          reference,
+          reused: true,
+          expiresInSeconds,
+          pendingStep,
+          phoneLast4: phone.slice(-4),
+          provider,
+          chargeStatus: pendingStep === "otp" ? "send_otp" : "pay_offline",
+          paystack: {
+            status: true,
+            message: "Mobile money authorization is already pending",
+            data: { reference, status: pendingStep === "otp" ? "send_otp" : "pay_offline" },
+          },
+          message: "Mobile money authorization is already pending",
+        });
+      }
+
+      // Cancel stale pending transactions for this workspace+plan+cycle
+      await db`
+        UPDATE paystack_transactions
+        SET status = 'cancelled',
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${db.json({
+        cancelledAt: new Date().toISOString(),
+        cancelledBy: auth.userId,
+        cancelReason: "mobile_money_attempt_replaced",
+      })}::jsonb,
+          updated_at = NOW()
+        WHERE workspace_id = ${workspace.id}::uuid
+          AND user_key_id = ${auth.userId}
+          AND plan_id = ${plan.id}
+          AND billing_cycle = ${cycle}
+          AND provider = 'paystack'
+          AND status = 'pending'
+          AND verified_at IS NULL
+      `;
+
+      const reference = paystackService.createReference(`sub_${workspace.id}_${plan.id}`);
+      const metadata = {
+        purpose: "subscription",
+        workspaceId: String(workspace.id),
+        planId: String(plan.id),
+        billingCycle: cycle,
+        userId: auth.userId,
+        method: "mobile_money",
+        mobileMoneyProvider: provider,
+        phoneLast4: phone.slice(-4),
+        phoneHash,
+        pendingStep: "phone_authorization",
+      };
+
+      console.info("[billing:paystack.mobile_money] initializing", {
+        workspaceId: String(workspace.id),
+        planId: String(plan.id),
+        userId: auth.userId,
+        amount,
+        currency,
+        provider,
+      });
+
+      const paystack = await paystackService.chargeMobileMoney({
+        email: auth.email,
+        amount,
+        currency,
+        phone,
+        provider,
+        reference,
+        metadata,
+      });
+      const chargeData = (paystack.data as Record<string, unknown>) ?? {};
+      const chargeStatus = String(chargeData.status ?? "");
+      const displayText = String((chargeData as any).display_text ?? paystack.message ?? "");
+      const pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
+
+      const [transaction] = await db`
+        INSERT INTO paystack_transactions (
+          workspace_id, user_key_id, purpose, plan_id, billing_cycle,
+          amount, currency, provider_reference, status, metadata
+        )
+        VALUES (
+          ${workspace.id}::uuid, ${auth.userId}, 'subscription', ${plan.id}, ${cycle},
+          ${amount}, ${currency}, ${reference}, 'pending', ${db.json({ ...metadata, pendingStep })}
+        )
+        RETURNING *
+      `;
+
+      console.info("[billing:paystack.mobile_money] Charge response", {
+        reference,
+        status: chargeStatus,
+        displayText,
+        provider,
+      });
+
+      return ok({
+        data: toCamel(transaction),
+        reference,
+        reused: false,
+        expiresInSeconds: MOBILE_MONEY_ATTEMPT_TTL_SECONDS,
+        pendingStep,
+        phoneLast4: phone.slice(-4),
+        provider,
+        paystack,
+        chargeStatus,
+        message: displayText || "Approve the payment prompt on your phone.",
+      });
+    },
+    {
+      body: t.Object({
+        workspaceId: t.Optional(t.String()),
+        planId: t.String(),
+        billingCycle: t.Optional(t.Union([t.Literal("monthly"), t.Literal("yearly")])),
+        phone: t.String(),
+        provider: t.String(),
+      }),
+    },
+  )
+  .post(
+    "/paystack/submit-otp",
+    async ({ headers, body }) => {
+      const auth = await resolveAuth(headers);
+      const reference = String(body.reference ?? "").trim();
+      const otp = String(body.otp ?? "").trim();
+      if (!reference) {
+        throw new HttpError(400, "reference_required", "Payment reference is required");
+      }
+      if (!otp || otp.length < 4) {
+        throw new HttpError(400, "invalid_otp", "Enter the OTP sent to your phone");
+      }
+
+      const db = getDb();
+      const [transaction] = await db`
+        SELECT * FROM paystack_transactions
+        WHERE provider = 'paystack' AND provider_reference = ${reference}
+          AND user_key_id = ${auth.userId}
+        LIMIT 1
+      `;
+      if (!transaction) {
+        throw new HttpError(404, "transaction_not_found", "Payment transaction not found");
+      }
+
+      console.info("[billing:paystack.submit_otp] Submitting OTP", { reference, userId: auth.userId });
+
+      const result = await paystackService.submitOtp({ reference, otp });
+      const chargeData = (result.data as Record<string, unknown>) ?? {};
+      const chargeStatus = String(chargeData.status ?? "");
+      const displayText = String((chargeData as any).display_text ?? "");
+
+      console.info("[billing:paystack.submit_otp] Response", { reference, status: chargeStatus, displayText });
+
+      if (chargeStatus === "pending" || chargeStatus === "pay_offline" || chargeStatus === "send_pin") {
+        await db`
+          UPDATE paystack_transactions
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || ${db.json({ pendingStep: "phone_authorization" })}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${transaction.id}
+        `;
+        return ok({
+          data: toCamel(transaction),
+          paystack: result,
+          status: "awaiting_pin_on_phone",
+          message: displayText || "OTP accepted. Complete the PIN authorization on your phone.",
+        });
+      }
+
+      if (chargeStatus === "success") {
+        const activated = await activateSubscriptionFromReference(reference, auth);
+        return ok({
+          data: toCamel(transaction),
+          paystack: result,
+          verified: activated.activated,
+          message: "Payment successful",
+        });
+      }
+
+      return ok({
+        data: toCamel(transaction),
+        paystack: result,
+        status: chargeStatus,
+        message: result.message || displayText || "Processing payment. Check your phone.",
+      });
+    },
+    {
+      body: t.Object({ reference: t.String(), otp: t.String() }),
+    },
+  )
+  .post(
+    "/paystack/check",
+    async ({ headers, body }) => {
+      const auth = await resolveAuth(headers);
+      const reference = String(body.reference ?? "").trim();
+      const db = getDb();
+      const [transaction] = await db`
+        SELECT * FROM paystack_transactions
+        WHERE provider = 'paystack' AND provider_reference = ${reference}
+          AND user_key_id = ${auth.userId}
+        LIMIT 1
+      `;
+      if (!transaction) {
+        throw new HttpError(404, "transaction_not_found", "Payment transaction not found");
+      }
+
+      const paystack = await paystackService.checkCharge(reference);
+      const chargeData = (paystack.data ?? {}) as Record<string, any>;
+      const chargeStatus = String(chargeData.status ?? "").toLowerCase();
+
+      if (chargeStatus === "success") {
+        const activated = await activateSubscriptionFromReference(reference, auth);
+        return ok({
+          ...activated,
+          chargeStatus,
+          message: "Payment successful",
+        });
+      }
+      return ok({
+        data: toCamel(transaction),
+        paystack,
+        verified: false,
+        chargeStatus,
+        message: paystack.message || "Charge status checked",
+      });
+    },
+    {
+      body: t.Object({ reference: t.String() }),
+    },
+  )
+  .post(
+    "/paystack/cancel",
+    async ({ headers, body }) => {
+      const auth = await resolveAuth(headers);
+      const reference = String(body.reference ?? "").trim();
+      if (!reference) {
+        throw new HttpError(400, "reference_required", "Payment reference is required");
+      }
+      const db = getDb();
+      const [transaction] = await db`
+        SELECT * FROM paystack_transactions
+        WHERE provider = 'paystack' AND provider_reference = ${reference}
+          AND user_key_id = ${auth.userId}
+          AND status = 'pending'
+          AND verified_at IS NULL
+        LIMIT 1
+      `;
+      if (!transaction) {
+        throw new HttpError(404, "transaction_not_found", "Pending payment transaction not found");
+      }
+      await db`
+        UPDATE paystack_transactions
+        SET status = 'cancelled',
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${db.json({
+        cancelledAt: new Date().toISOString(),
+        cancelledBy: auth.userId,
+      })}::jsonb,
+          updated_at = NOW()
+        WHERE id = ${transaction.id}
+      `;
+      return ok({
+        data: toCamel(transaction),
+        message: "Payment cancelled. You can try again.",
       });
     },
     {
