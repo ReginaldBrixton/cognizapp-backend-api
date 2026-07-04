@@ -95,6 +95,7 @@ export const emailService = {
     expiresInMinutes: number;
     ipAddress?: string;
     userAgent?: string;
+    magicLinkUrl?: string;
   }): Promise<EmailResult> {
     const actionUrl = buildActionUrl(`/login?step=code&email=${encodeURIComponent(input.to)}`);
     return postWebhook({
@@ -103,13 +104,15 @@ export const emailService = {
       to: input.to,
       subject: "Your CogniZap login code",
       title: "Your CogniZap login code",
-      message: `Enter this code to sign in. Valid for ${input.expiresInMinutes} minutes.`,
+      message: `Enter this code to sign in, or click the magic link below. Valid for ${input.expiresInMinutes} minutes.`,
       actionUrl,
       code: input.code,
+      magicLinkUrl: input.magicLinkUrl ?? "",
       expiresInMinutes: input.expiresInMinutes,
       metadata: {
         authAction: "otp",
         actionUrl,
+        magicLinkUrl: input.magicLinkUrl ?? "",
         ipAddress: input.ipAddress ?? "",
         userAgent: input.userAgent ?? "",
       },

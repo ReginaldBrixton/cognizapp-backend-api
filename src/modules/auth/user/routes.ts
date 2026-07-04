@@ -21,6 +21,11 @@ const otpVerifyBody = t.Object({
   selectedRole: t.Optional(t.String()),
 });
 
+const magicLinkVerifyBody = t.Object({
+  token: t.String({ minLength: 16 }),
+  selectedRole: t.Optional(t.String()),
+});
+
 const firebaseExchangeBody = t.Object({
   firebaseToken: t.String(),
   selectedRole: t.Optional(t.String()),
@@ -174,6 +179,37 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
       }
     },
     { body: otpVerifyBody },
+  )
+  .post(
+    "/magic-link/verify",
+    async ({ body, headers, request, server, cookie, set }) => {
+      try {
+        const response = await otpService.verifyMagicLink(
+          body.token,
+          headers,
+          getForwardedIp(headers, request, server),
+          readHeader(headers, "user-agent"),
+          body.selectedRole,
+        );
+        if (response.refreshToken) {
+          cookie.refresh_token.set(refreshCookie(response.refreshToken));
+        }
+        return response;
+      } catch (error) {
+        if (error instanceof HttpError) {
+          set.status = error.status;
+          return fail(error.message, error.code, error.details);
+        }
+        if (isTransientDbError(error)) {
+          console.error("[auth:user] magic-link verify DB error:", error instanceof Error ? error.message : String(error));
+          set.status = 503;
+          return fail("Service temporarily unavailable. Please try again.", "service_unavailable");
+        }
+        set.status = 500;
+        return fail("Magic link verification failed", "magic_link_verify_failed");
+      }
+    },
+    { body: magicLinkVerifyBody },
   )
   .post(
     "/refresh",

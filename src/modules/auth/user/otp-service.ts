@@ -1,10 +1,11 @@
 import { randomInt } from "node:crypto";
 
 import { env } from "../../../config/env";
-import { hashToken, safeEqualString } from "../../../lib/crypto";
+import { hashToken, randomToken, safeEqualString } from "../../../lib/crypto";
 import { emailDelivery } from "../../../lib/email-delivery";
 import { HttpError } from "../../../lib/errors";
 import { getDb, withDbRetry } from "../../../lib/db";
+import { getPublicSiteOrigin } from "../../../lib/site-url";
 import { normalizeEmail } from "../helpers";
 import { otpRepository } from "./otp-repository";
 import {
@@ -72,7 +73,7 @@ export const otpService = {
     return normalized;
   },
 
-  async sendOtpEmail(email: string, code: string, ipAddress: string, userAgent: string) {
+  async sendOtpEmail(email: string, code: string, ipAddress: string, userAgent: string, magicLinkUrl?: string) {
     if (!emailDelivery.isConfigured()) {
       throw new HttpError(503, "email_not_configured", "Email delivery is not configured");
     }
@@ -83,6 +84,7 @@ export const otpService = {
       expiresInMinutes: env.otpCodeExpiryMinutes,
       ipAddress,
       userAgent,
+      magicLinkUrl,
     });
 
     if (!result.ok) {
@@ -116,16 +118,21 @@ export const otpService = {
     }
 
     const code = this.generateOtpCode();
+    const magicLinkToken = randomToken(32);
+    const magicLinkTokenHash = hashToken(magicLinkToken);
     await withDbRetry(() => otpRepository.createOtpCode({
       email,
       codeHash: this.hashOtpCode(code),
+      magicLinkTokenHash,
       expiresAt: new Date(Date.now() + env.otpCodeExpiryMinutes * 60 * 1000),
       ipAddress,
       userAgent,
     }));
 
+    const magicLinkUrl = `${getPublicSiteOrigin()}/auth/magic-link?token=${magicLinkToken}`;
+
     try {
-      await this.sendOtpEmail(email, code, ipAddress, userAgent);
+      await this.sendOtpEmail(email, code, ipAddress, userAgent, magicLinkUrl);
     } catch (error) {
       if (!env.isDevelopment) {
         throw error;
@@ -196,6 +203,33 @@ export const otpService = {
     await withDbRetry(() => otpRepository.markOtpVerified(matchingCode.id));
     await withDbRetry(() => otpRepository.markOtherActiveCodesVerified(email, matchingCode.id));
     return userAuthService.loginWithEmailOtp(email, headers, {
+      ipAddress,
+      userAgent,
+      otpCodeId: matchingCode.id,
+      selectedRole: selectedPortalRole,
+    });
+  },
+
+  async verifyMagicLink(tokenInput: string, headers: HeaderBag | undefined, ipAddress: string, userAgent: string, selectedRole?: string) {
+    const token = tokenInput.trim();
+    if (!token || token.length < 16) {
+      throw new HttpError(400, "invalid_magic_link", "Invalid or incomplete magic link");
+    }
+
+    const tokenHash = hashToken(token);
+    const matchingCode = await withDbRetry(() => otpRepository.getActiveOtpCodeByMagicLinkToken(tokenHash));
+    if (!matchingCode) {
+      throw new HttpError(401, "magic_link_invalid_or_expired", "This magic link is invalid, expired, or has already been used");
+    }
+
+    const selectedPortalRole = normalizeSelectedPrivilegedRole(selectedRole);
+    if (selectedPortalRole) {
+      await assertEmailHasPrivilegedGrant(matchingCode.email, selectedPortalRole);
+    }
+
+    await withDbRetry(() => otpRepository.markOtpVerified(matchingCode.id));
+    await withDbRetry(() => otpRepository.markOtherActiveCodesVerified(matchingCode.email, matchingCode.id));
+    return userAuthService.loginWithEmailOtp(matchingCode.email, headers, {
       ipAddress,
       userAgent,
       otpCodeId: matchingCode.id,

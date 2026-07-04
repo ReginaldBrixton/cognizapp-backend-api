@@ -12,6 +12,7 @@ type OtpEmailInput = {
   expiresInMinutes: number;
   ipAddress?: string;
   userAgent?: string;
+  magicLinkUrl?: string;
 };
 
 type FeedbackEmailInput = {

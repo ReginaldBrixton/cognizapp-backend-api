@@ -4,6 +4,7 @@ export type OtpCodeRecord = {
   id: string;
   email: string;
   codeHash: string;
+  magicLinkTokenHash: string | null;
   expiresAt: Date;
   attempts: number;
   createdAt: Date;
@@ -19,6 +20,7 @@ function parseOtpCode(row: Record<string, unknown>): OtpCodeRecord {
     id: String(row.id),
     email: String(row.email),
     codeHash: String(row.code_hash),
+    magicLinkTokenHash: row.magic_link_token_hash ? String(row.magic_link_token_hash) : null,
     expiresAt: new Date(String(row.expires_at)),
     attempts: Number(row.attempts ?? 0),
     createdAt: new Date(String(row.created_at)),
@@ -34,17 +36,32 @@ export const otpRepository = {
   async createOtpCode(input: {
     email: string;
     codeHash: string;
+    magicLinkTokenHash?: string | null;
     expiresAt: Date;
     ipAddress: string;
     userAgent: string;
   }) {
     const db = getDb();
     const rows = await db`
-      INSERT INTO auth.auth_codes (email, code_hash, expires_at, ip_address, user_agent)
-      VALUES (${input.email}, ${input.codeHash}, ${input.expiresAt}, ${input.ipAddress}, ${input.userAgent})
+      INSERT INTO auth.auth_codes (email, code_hash, magic_link_token_hash, expires_at, ip_address, user_agent)
+      VALUES (${input.email}, ${input.codeHash}, ${input.magicLinkTokenHash ?? null}, ${input.expiresAt}, ${input.ipAddress}, ${input.userAgent})
       RETURNING *
     `;
     return parseOtpCode(rows[0]);
+  },
+
+  async getActiveOtpCodeByMagicLinkToken(tokenHash: string) {
+    const db = getDb();
+    const rows = await db`
+      SELECT *
+      FROM auth.auth_codes
+      WHERE magic_link_token_hash = ${tokenHash}
+        AND verified = FALSE
+        AND expires_at > NOW()
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    return rows[0] ? parseOtpCode(rows[0]) : null;
   },
 
   async getActiveOtpCodes(email: string) {
