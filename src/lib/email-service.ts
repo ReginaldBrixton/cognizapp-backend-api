@@ -104,7 +104,7 @@ export const emailService = {
       to: input.to,
       subject: "Your CogniZap login code",
       title: "Your CogniZap login code",
-      message: `Enter this code to sign in, or click the magic link below. Valid for ${input.expiresInMinutes} minutes.`,
+      message: `Click the "Sign in instantly" button below to log in with one click, or enter the 6-digit code manually if you prefer. Valid for ${input.expiresInMinutes} minutes.`,
       actionUrl,
       code: input.code,
       magicLinkUrl: input.magicLinkUrl ?? "",
