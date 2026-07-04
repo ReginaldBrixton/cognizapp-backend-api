@@ -534,7 +534,7 @@ export const dashboardRoutes = new Elysia({ prefix: "/api/user", tags: ["dashboa
     let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const stream = new ReadableStream({
-      async start(controller) {
+      async start(controller: ReadableStreamDefaultController) {
         const sendEvent = (data: Record<string, unknown>) => {
           if (closed) return;
           try {
