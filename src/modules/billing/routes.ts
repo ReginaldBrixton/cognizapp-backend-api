@@ -1343,8 +1343,15 @@ export const billingRoutes = new Elysia({
       `;
       if (pendingTx) {
         const reference = String(pendingTx.provider_reference);
-        const pendingStep = String(pendingTx.metadata?.pendingStep ?? "") === "otp" ? "otp" : "phone_authorization";
+        const rawPendingStep = String(pendingTx.metadata?.pendingStep ?? "");
+        const pendingStep =
+          rawPendingStep === "otp"
+            ? "otp"
+            : rawPendingStep === "hosted_checkout"
+              ? "hosted_checkout"
+              : "phone_authorization";
         const expiresInSeconds = Math.max(1, Number(pendingTx.expires_in_seconds ?? MOBILE_MONEY_ATTEMPT_TTL_SECONDS));
+        const isHosted = pendingStep === "hosted_checkout";
         return ok({
           data: toCamel(pendingTx),
           reference,
@@ -1353,11 +1360,23 @@ export const billingRoutes = new Elysia({
           pendingStep,
           phoneLast4: phone.slice(-4),
           provider,
-          chargeStatus: pendingStep === "otp" ? "send_otp" : "pay_offline",
+          chargeStatus: isHosted
+            ? "open_checkout"
+            : pendingStep === "otp"
+              ? "send_otp"
+              : "pay_offline",
+          checkoutMode: isHosted ? "hosted" : "charge",
           paystack: {
             status: true,
             message: "Mobile money authorization is already pending",
-            data: { reference, status: pendingStep === "otp" ? "send_otp" : "pay_offline" },
+            data: {
+              reference,
+              status: isHosted
+                ? "open_checkout"
+                : pendingStep === "otp"
+                  ? "send_otp"
+                  : "pay_offline",
+            },
           },
           message: "Mobile money authorization is already pending",
         });
