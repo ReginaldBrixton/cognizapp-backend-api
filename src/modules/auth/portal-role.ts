@@ -1,4 +1,4 @@
-import { HttpError } from "../../../lib/errors";
+import { HttpError } from "../../lib/errors";
 
 export type PrivilegedPortalRole = "ADMIN_USER" | "SUPPORT_PROVIDER_USER";
 

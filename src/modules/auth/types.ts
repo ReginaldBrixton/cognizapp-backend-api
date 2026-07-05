@@ -34,6 +34,13 @@ export type UserRecord = {
   loginCount: number;
   failedLogins: number;
   lockedUntil: string | null;
+  // ── PIN auth (provider portal) ────────────────────────────────────────
+  username: string | null;
+  pinHash: string | null;
+  pinFailedLogins: number;
+  pinLockedUntil: string | null;
+  pinSetAt: string | null;
+  lastPinFailedAt: string | null;
 };
 
 export type SessionRecord = {
@@ -58,6 +65,8 @@ export type SessionRecord = {
   reuseDetectedAt: Date | null;
   createdAt: Date;
   lastActive: Date | null;
+  // Stable device_id cookie bound to this session for activity-log correlation.
+  deviceId: string | null;
 };
 
 export type AuthAction = "login" | "register";

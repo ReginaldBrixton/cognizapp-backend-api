@@ -1,11 +1,11 @@
 import { Elysia, t } from "elysia";
 
-import { env } from "../../../config/env";
 import { HttpError } from "../../../lib/errors";
 import { fail, ok } from "../../../lib/http";
 import { isTransientDbError } from "../../../lib/db";
 import { resolveAuth } from "../middleware";
 import { getForwardedIp, readHeader, refreshCookie } from "../helpers";
+import { authErrorHandler } from "../route-error-handler";
 import { otpService } from "./otp-service";
 import { userAuthService } from "./service";
 
@@ -31,32 +31,8 @@ const firebaseExchangeBody = t.Object({
   selectedRole: t.Optional(t.String()),
 });
 
-export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] })
-  .onError(({ code, error, set }) => {
-    if (error instanceof HttpError) {
-      set.status = error.status;
-      return fail(error.message, error.code, error.details);
-    }
-    if (code === "VALIDATION" || code === "PARSE") {
-      set.status = 400;
-      return fail("Invalid request body", "invalid_request");
-    }
-    if (isTransientDbError(error)) {
-      console.error("[auth:user] transient DB error", {
-        code,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      set.status = 503;
-      return fail("Service temporarily unavailable. Please try again.", "service_unavailable");
-    }
-    console.error("[auth:user] unhandled route error", {
-      code,
-      message: error instanceof Error ? error.message : String(error),
-      stack: env.isDevelopment && error instanceof Error ? error.stack : undefined,
-    });
-    set.status = 500;
-    return fail("Internal server error", "internal_error");
-  })
+export const usersAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] })
+  .onError(authErrorHandler("auth:users"))
   .get("/health", () => ok({ status: "ok", service: "auth" }))
   .post(
     "/firebase/exchange",
@@ -109,11 +85,11 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
           return fail(error.message, error.code, error.details);
         }
         if (isTransientDbError(error)) {
-          console.error("[auth:user] OTP request DB error:", error instanceof Error ? error.message : String(error));
+          console.error("[auth:users] OTP request DB error:", error instanceof Error ? error.message : String(error));
           set.status = 503;
           return fail("Service temporarily unavailable. Please try again.", "service_unavailable");
         }
-        console.error("[auth:user] OTP request failed:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
+        console.error("[auth:users] OTP request failed:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
         set.status = 500;
         return fail("Failed to send OTP", "otp_request_failed");
       }
@@ -137,11 +113,11 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
           return fail(error.message, error.code, error.details);
         }
         if (isTransientDbError(error)) {
-          console.error("[auth:user] OTP resend DB error:", error instanceof Error ? error.message : String(error));
+          console.error("[auth:users] OTP resend DB error:", error instanceof Error ? error.message : String(error));
           set.status = 503;
           return fail("Service temporarily unavailable. Please try again.", "service_unavailable");
         }
-        console.error("[auth:user] OTP resend failed:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
+        console.error("[auth:users] OTP resend failed:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
         set.status = 500;
         return fail("Failed to send OTP", "otp_request_failed");
       }
@@ -170,7 +146,7 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
           return fail(error.message, error.code, error.details);
         }
         if (isTransientDbError(error)) {
-          console.error("[auth:user] OTP verify DB error:", error instanceof Error ? error.message : String(error));
+          console.error("[auth:users] OTP verify DB error:", error instanceof Error ? error.message : String(error));
           set.status = 503;
           return fail("Service temporarily unavailable. Please try again.", "service_unavailable");
         }
@@ -201,7 +177,7 @@ export const userAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] }
           return fail(error.message, error.code, error.details);
         }
         if (isTransientDbError(error)) {
-          console.error("[auth:user] magic-link verify DB error:", error instanceof Error ? error.message : String(error));
+          console.error("[auth:users] magic-link verify DB error:", error instanceof Error ? error.message : String(error));
           set.status = 503;
           return fail("Service temporarily unavailable. Please try again.", "service_unavailable");
         }

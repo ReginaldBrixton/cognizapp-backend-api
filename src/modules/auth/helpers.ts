@@ -180,6 +180,7 @@ export type SessionCreationOptions = {
   ipAddressOverride?: string;
   simulated?: boolean;
   isNewUser?: boolean;
+  deviceId?: string | null;
 };
 
 export async function createAuthenticatedSession(
@@ -193,6 +194,7 @@ export async function createAuthenticatedSession(
     ipAddressOverride,
     simulated = false,
     isNewUser = false,
+    deviceId: deviceIdInput,
   }: SessionCreationOptions,
 ): Promise<ExchangeResponse> {
   const userAgent = readHeader(headers, "user-agent");
@@ -200,6 +202,7 @@ export async function createAuthenticatedSession(
   const ipAddress = ipAddressOverride ?? getClientIp(headers);
   const currentFingerprint = deviceFingerprint(`${userAgent}${acceptLanguage}${ipAddress}`);
   const device = getDeviceInfo(userAgent);
+  const deviceId = deviceIdInput ?? null;
   const placeholderSession = await authRepository.createSession({
     userId: user.id,
     email: user.email,
@@ -215,6 +218,7 @@ export async function createAuthenticatedSession(
     os: device.os,
     deviceType: device.type,
     deviceName: device.name,
+    deviceId,
   });
 
   const accessExpiry = new Date(Date.now() + env.jwtAccessExpiryMinutes * 60 * 1000);
@@ -243,6 +247,12 @@ export async function createAuthenticatedSession(
   await authRepository.insertActivity(user.id, activityType, activityDescription, placeholderSession.id, {
     ...activityMetadata,
     simulated,
+    device_id: deviceId,
+    device_name: device.name,
+    device_type: device.type,
+    browser: device.browser,
+    os: device.os,
+    accept_language: acceptLanguage || undefined,
   });
 
   const authAction = isNewUser ? "register" : "login";

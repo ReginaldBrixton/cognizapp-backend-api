@@ -7,7 +7,8 @@ import { uploadthingConfigured } from "../lib/uploadthing";
 import { adminRoutes } from "../modules/admin/routes";
 import { aiBotRoutes } from "../modules/ai-bot/routes";
 import { adminAuthRoutes } from "../modules/auth/admin/routes";
-import { userAuthRoutes } from "../modules/auth/user/routes";
+import { usersAuthRoutes } from "../modules/auth/users/routes";
+import { providerAuthRoutes } from "../modules/auth/providers/routes";
 import { billingRoutes } from "../modules/billing/routes";
 import { feedbackRoutes } from "../modules/feedback/routes";
 import { notificationRoutes } from "../modules/notifications/routes";
@@ -201,7 +202,8 @@ export async function createApp() {
     })
     .get("/", () => ok({ status: "ok", message: "CognizApp Users API is running" }))
     .get("/health", () => "OK")
-    .use(userAuthRoutes)
+    .use(usersAuthRoutes)
+    .use(providerAuthRoutes)
     .use(adminAuthRoutes)
     .use(workspaceRoutes)
     .use(projectRoutes)

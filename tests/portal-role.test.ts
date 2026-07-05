@@ -3,7 +3,7 @@ import {
   normalizeSelectedPrivilegedRole,
   privilegedPortalLabel,
   assertSelectedRoleMatchesGrant,
-} from "../src/modules/auth/user/portal-role";
+} from "../src/modules/auth/portal-role";
 import { HttpError } from "../src/lib/errors";
 
 describe("normalizeSelectedPrivilegedRole", () => {

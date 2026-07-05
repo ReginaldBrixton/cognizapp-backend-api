@@ -20,7 +20,7 @@ import {
   normalizeSelectedPrivilegedRole,
   privilegedPortalLabel,
   type PrivilegedPortalRole,
-} from "./portal-role";
+} from "../portal-role";
 import { defaultPrivilegedRoleForEmail, isDefaultAdminEmail } from "../privileged-defaults";
 import { getFirebaseAdminAuth } from "../../../lib/firebase";
 

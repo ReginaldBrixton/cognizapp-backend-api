@@ -12,7 +12,7 @@ import {
   assertSelectedRoleMatchesGrant,
   normalizeSelectedPrivilegedRole,
   type PrivilegedPortalRole,
-} from "./portal-role";
+} from "../portal-role";
 import { userAuthService } from "./service";
 import { defaultPrivilegedRoleForEmail, isDefaultAdminEmail } from "../privileged-defaults";
 
