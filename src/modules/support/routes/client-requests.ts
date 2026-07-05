@@ -670,6 +670,11 @@ export const clientRequestRoutes = new Elysia()
       existingRequest.client_id ? String(existingRequest.client_id) : null,
     );
     const paymentPolicy = buildSupportPaymentPolicy(existingRequest, riskTier);
+    const totalAmount = roundMoney(
+      Number(existingRequest.final_amount ?? existingRequest.payment_amount ?? existingRequest.quoted_amount ?? 0),
+    );
+    const policyDepositAmount = roundMoney((totalAmount * paymentPolicy.depositPercent) / 100);
+    const policyBalanceAmount = roundMoney(Math.max(totalAmount - policyDepositAmount, 0));
     await verifySupportWorkspaceAccess(
       auth,
       String(existingRequest.workspace_id),
@@ -733,6 +738,15 @@ export const clientRequestRoutes = new Elysia()
           payment_policy = ${tx.json(paymentPolicy as any)},
           payment_policy_version = ${paymentPolicy.version},
           revisions_allowed = ${paymentPolicy.revisionsAllowed},
+          deposit_percent = ${paymentPolicy.depositPercent},
+          deposit_amount = CASE
+            WHEN payment_status = 'paid' THEN deposit_amount
+            ELSE ${policyDepositAmount}
+          END,
+          balance_amount = CASE
+            WHEN payment_status = 'paid' THEN balance_amount
+            ELSE ${policyBalanceAmount}
+          END,
           updated_at = NOW()
         WHERE id = ${params.id}::uuid AND user_key_id = ${auth.userId} AND integrity_ack = TRUE
         RETURNING *

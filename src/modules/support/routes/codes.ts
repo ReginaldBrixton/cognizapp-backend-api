@@ -153,15 +153,16 @@ export const codesRoutes = new Elysia()
       let referralError: string | null = null;
       if (referralCode) {
         const [row] = await db`
-          SELECT sc.user_key_id, sc.email, sc.full_name, sc.referral_code
-          FROM support_clients sc
-          WHERE upper(sc.referral_code) = ${referralCode}
-            AND sc.user_key_id != ${auth.userId}
-          UNION ALL
-          SELECT u.id::text AS user_key_id, u.email, COALESCE(u.full_name, u.display_name, u.email) AS full_name, u.referral_code
+          SELECT u.id::text AS user_key_id, u.email, COALESCE(u.full_name, u.display_name, u.email) AS full_name, u.referral_code, 1 AS source_priority
           FROM auth.users u
           WHERE upper(u.referral_code) = ${referralCode}
             AND u.id::text != ${auth.userId}
+          UNION ALL
+          SELECT sc.user_key_id, sc.email, sc.full_name, sc.referral_code, 2 AS source_priority
+          FROM support_clients sc
+          WHERE upper(sc.referral_code) = ${referralCode}
+            AND sc.user_key_id != ${auth.userId}
+          ORDER BY source_priority ASC
           LIMIT 1
         `;
         if (!row) {

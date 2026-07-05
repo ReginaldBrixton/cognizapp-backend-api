@@ -862,6 +862,10 @@ async function processBillingWebhook(payload: Record<string, any>) {
     eventType === "subscription.not_renew" ||
     eventType === "subscription.disable"
   ) {
+    if (!subscriptionCode) {
+      console.warn("[billing:webhook] %s event missing subscription_code — skipping", eventType, { reference });
+      return { skipped: true, reason: "missing_subscription_code" };
+    }
     const status =
       eventType === "subscription.disable" ? "cancelled" : "active";
     const [subscription] = await db`
@@ -869,7 +873,7 @@ async function processBillingWebhook(payload: Record<string, any>) {
       SET status = ${status},
         cancel_at_period_end = TRUE,
         updated_at = NOW()
-      WHERE paystack_subscription_code = ${subscriptionCode ? String(subscriptionCode) : null}
+      WHERE paystack_subscription_code = ${String(subscriptionCode)}
       RETURNING *
     `;
     if (subscription) {
@@ -1343,15 +1347,8 @@ export const billingRoutes = new Elysia({
       `;
       if (pendingTx) {
         const reference = String(pendingTx.provider_reference);
-        const rawPendingStep = String(pendingTx.metadata?.pendingStep ?? "");
-        const pendingStep =
-          rawPendingStep === "otp"
-            ? "otp"
-            : rawPendingStep === "hosted_checkout"
-              ? "hosted_checkout"
-              : "phone_authorization";
+        const pendingStep = String(pendingTx.metadata?.pendingStep ?? "") === "otp" ? "otp" : "phone_authorization";
         const expiresInSeconds = Math.max(1, Number(pendingTx.expires_in_seconds ?? MOBILE_MONEY_ATTEMPT_TTL_SECONDS));
-        const isHosted = pendingStep === "hosted_checkout";
         return ok({
           data: toCamel(pendingTx),
           reference,
@@ -1360,23 +1357,11 @@ export const billingRoutes = new Elysia({
           pendingStep,
           phoneLast4: phone.slice(-4),
           provider,
-          chargeStatus: isHosted
-            ? "open_checkout"
-            : pendingStep === "otp"
-              ? "send_otp"
-              : "pay_offline",
-          checkoutMode: isHosted ? "hosted" : "charge",
+          chargeStatus: pendingStep === "otp" ? "send_otp" : "pay_offline",
           paystack: {
             status: true,
             message: "Mobile money authorization is already pending",
-            data: {
-              reference,
-              status: isHosted
-                ? "open_checkout"
-                : pendingStep === "otp"
-                  ? "send_otp"
-                  : "pay_offline",
-            },
+            data: { reference, status: pendingStep === "otp" ? "send_otp" : "pay_offline" },
           },
           message: "Mobile money authorization is already pending",
         });
@@ -1412,6 +1397,7 @@ export const billingRoutes = new Elysia({
         mobileMoneyProvider: provider,
         phoneLast4: phone.slice(-4),
         phoneHash,
+        pendingStep: "phone_authorization",
       };
 
       console.info("[billing:paystack.mobile_money] initializing", {
@@ -1423,50 +1409,19 @@ export const billingRoutes = new Elysia({
         provider,
       });
 
-      // MTN/AirtelTigo: Use Paystack hosted checkout for the full OTP → PIN flow.
-      // The Charge API returns "pay_offline" for MTN/ATL (phone-only auth, no OTP).
-      // Hosted checkout supports the OTP code → PIN authorization flow the user expects.
-      // Telecel (vod) keeps the Charge API for its voucher code system.
-      const useHostedCheckout = provider === "mtn" || provider === "atl";
-      const callbackUrl = normalizePublicCallbackUrl(body.callbackUrl ?? "");
-      let paystack: Awaited<ReturnType<typeof paystackService.initializeCheckout>>;
-      let chargeStatus: string;
-      let displayText: string;
-      let pendingStep: string;
-      let authorizationUrl: string | null = null;
-      let accessCode: string | null = null;
-
-      if (useHostedCheckout) {
-        paystack = await paystackService.initializeCheckout({
-          email: auth.email,
-          amount,
-          currency,
-          reference,
-          channels: ["mobile_money"],
-          callbackUrl,
-          metadata,
-        });
-        const checkoutData = (paystack.data as Record<string, unknown>) ?? {};
-        authorizationUrl = (checkoutData.authorization_url as string) ?? null;
-        accessCode = (checkoutData.access_code as string) ?? null;
-        chargeStatus = "open_checkout";
-        displayText = "Redirecting to Paystack for secure mobile money payment...";
-        pendingStep = "hosted_checkout";
-      } else {
-        paystack = await paystackService.chargeMobileMoney({
-          email: auth.email,
-          amount,
-          currency,
-          phone,
-          provider,
-          reference,
-          metadata,
-        });
-        const chargeData = (paystack.data as Record<string, unknown>) ?? {};
-        chargeStatus = String(chargeData.status ?? "");
-        displayText = String((chargeData as any).display_text ?? paystack.message ?? "");
-        pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
-      }
+      const paystack = await paystackService.chargeMobileMoney({
+        email: auth.email,
+        amount,
+        currency,
+        phone,
+        provider,
+        reference,
+        metadata,
+      });
+      const chargeData = (paystack.data as Record<string, unknown>) ?? {};
+      const chargeStatus = String(chargeData.status ?? "");
+      const displayText = String((chargeData as any).display_text ?? paystack.message ?? "");
+      const pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
 
       const [transaction] = await db`
         INSERT INTO paystack_transactions (
@@ -1497,9 +1452,6 @@ export const billingRoutes = new Elysia({
         provider,
         paystack,
         chargeStatus,
-        authorizationUrl,
-        accessCode,
-        checkoutMode: useHostedCheckout ? "hosted" : "charge",
         message: displayText || "Approve the payment prompt on your phone.",
       });
     },
@@ -1510,7 +1462,6 @@ export const billingRoutes = new Elysia({
         billingCycle: t.Optional(t.Union([t.Literal("monthly"), t.Literal("yearly")])),
         phone: t.String(),
         provider: t.String(),
-        callbackUrl: t.Optional(t.String()),
       }),
     },
   )
@@ -1660,6 +1611,69 @@ export const billingRoutes = new Elysia({
     },
     {
       body: t.Object({ reference: t.String() }),
+    },
+  )
+  .post(
+    "/agreements/accept",
+    async ({ headers, body }) => {
+      const auth = await resolveAuth(headers);
+      const db = getDb();
+      const serviceType = String(body.serviceType ?? "").trim();
+      if (!serviceType) {
+        throw new HttpError(400, "service_type_required", "Service type is required");
+      }
+      const policyVersion = String(body.policyVersion ?? "").trim();
+      if (!policyVersion) {
+        throw new HttpError(400, "policy_version_required", "Policy version is required");
+      }
+      const [record] = await db`
+        INSERT INTO service_agreement_acceptances (
+          user_key_id, service_type, service_id, policy_version,
+          amount, currency, agreement_data
+        )
+        VALUES (
+          ${auth.userId}, ${serviceType}, ${body.serviceId ?? null}, ${policyVersion},
+          ${Number(body.amount ?? 0)}, ${String(body.currency ?? "GHS")},
+          ${db.json(body.agreementData ?? {})}
+        )
+        RETURNING *
+      `;
+      return ok({
+        data: toCamel(record),
+        message: "Agreement accepted",
+      });
+    },
+    {
+      body: t.Object({
+        serviceType: t.String(),
+        serviceId: t.Optional(t.String()),
+        policyVersion: t.String(),
+        amount: t.Optional(t.Number()),
+        currency: t.Optional(t.String()),
+        agreementData: t.Optional(t.Any()),
+      }),
+    },
+  )
+  .get(
+    "/agreements/latest",
+    async ({ headers, query }) => {
+      const auth = await resolveAuth(headers);
+      const db = getDb();
+      const serviceType = String(query.serviceType ?? "").trim();
+      if (!serviceType) {
+        throw new HttpError(400, "service_type_required", "Service type is required");
+      }
+      const [latest] = await db`
+        SELECT * FROM service_agreement_acceptances
+        WHERE user_key_id = ${auth.userId}
+          AND service_type = ${serviceType}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+      return ok({
+        data: latest ? toCamel(latest) : null,
+        hasAccepted: Boolean(latest),
+      });
     },
   )
   .post("/paystack/webhook", async ({ request, headers, set }) => {

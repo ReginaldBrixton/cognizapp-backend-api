@@ -205,14 +205,15 @@ export const referralRoutes = new Elysia({ prefix: "/api/referrals", tags: ["ref
 
     const db = getDb();
     const [referrer] = await db`
-      SELECT id::text AS user_id, email, referral_code
+      SELECT id::text AS user_id, email, referral_code, 1 AS source_priority
       FROM auth.users
       WHERE upper(referral_code) = ${code}
       UNION ALL
-      SELECT u.id::text AS user_id, u.email, sc.referral_code
+      SELECT u.id::text AS user_id, u.email, sc.referral_code, 2 AS source_priority
       FROM support_clients sc
       INNER JOIN auth.users u ON u.id::text = sc.user_key_id
       WHERE upper(sc.referral_code) = ${code}
+      ORDER BY source_priority ASC
       LIMIT 1
     `;
     if (!referrer) throw new HttpError(404, "referral_code_not_found", "Referral code was not found");
@@ -406,10 +407,23 @@ export const referralRoutes = new Elysia({ prefix: "/api/referrals", tags: ["ref
       )
       RETURNING *
     `;
+    // Mark commissions as 'paid' to prevent double-withdrawal. If the Paystack
+    // transfer failed or was rejected, reverse the payout and mark the
+    // commissions back as 'available' so the user can retry. A transfer
+    // webhook or manual reconciliation handles pending → paid transitions.
+    const transferFailed =
+      autoTransfer && ["failed", "rejected", "cancelled"].includes(String(transfer?.status ?? "").toLowerCase());
+    if (transferFailed) {
+      await db`
+        UPDATE referral_payouts
+        SET status = 'failed', updated_at = NOW()
+        WHERE id = ${payout.id}
+      `;
+    }
     await db`
       UPDATE referral_commissions
-      SET status = CASE WHEN ${autoTransfer} THEN 'paid' ELSE 'available' END,
-        paid_at = CASE WHEN ${autoTransfer} THEN NOW() ELSE paid_at END,
+      SET status = CASE WHEN ${transferFailed} THEN 'available' WHEN ${autoTransfer} THEN 'paid' ELSE 'available' END,
+        paid_at = CASE WHEN ${autoTransfer} AND NOT ${transferFailed} THEN NOW() ELSE paid_at END,
         updated_at = NOW()
       WHERE referrer_user_id = ${auth.userId}::uuid
         AND (status = 'available' OR (status = 'pending' AND available_at <= NOW()))

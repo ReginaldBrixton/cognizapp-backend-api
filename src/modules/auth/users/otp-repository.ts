@@ -93,6 +93,16 @@ export const otpRepository = {
     return rows[0] ? parseOtpCode(rows[0]) : null;
   },
 
+  async incrementAttemptsForCodes(ids: string[]) {
+    if (ids.length === 0) return;
+    const db = getDb();
+    await db`
+      UPDATE auth.auth_codes
+      SET attempts = attempts + 1
+      WHERE id = ANY(${ids}::text[])
+    `;
+  },
+
   async markOtpVerified(id: string) {
     const db = getDb();
     await db`

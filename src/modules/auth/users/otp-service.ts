@@ -190,9 +190,11 @@ export const otpService = {
     const codeHash = this.hashOtpCode(code);
     const matchingCode = availableCodes.find((activeCode) => safeEqualString(activeCode.codeHash, codeHash));
     if (!matchingCode) {
+      // Penalize ALL available codes so an attacker cannot multiply their guess
+      // budget by requesting several codes before each one expires.
+      await withDbRetry(() => otpRepository.incrementAttemptsForCodes(availableCodes.map((c) => c.id)));
       const newestCode = availableCodes[0];
-      const updated = await withDbRetry(() => otpRepository.incrementOtpAttempts(newestCode.id));
-      const attemptsRemaining = Math.max(env.otpMaxAttempts - (updated?.attempts ?? newestCode.attempts + 1), 0);
+      const attemptsRemaining = Math.max(env.otpMaxAttempts - (newestCode.attempts + 1), 0);
       throw new HttpError(401, "invalid_otp_code", "Login code is invalid or expired", { attemptsRemaining });
     }
 

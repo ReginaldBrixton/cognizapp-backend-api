@@ -118,15 +118,30 @@ export function calculatePaymentAmount(body: Record<string, any>) {
 			return 0;
 		}
 	}
-	return 0;
+
+	// Safety fallback: if no priced tag and no cost estimate, use a minimum
+	// base price so the payment amount is never 0. This prevents users from
+	// being unable to pay because the amount wasn't calculated.
+	const MINIMUM_FALLBACK_PRICE = 10;
+	return roundMoney(MINIMUM_FALLBACK_PRICE * (1 - LAUNCH_DISCOUNT_RATE));
 }
 
-export function buildPaymentSchedule(body: Record<string, any>) {
+export function buildPaymentSchedule(body: Record<string, any>, depositPercent?: number) {
 	const paymentAmount = roundMoney(calculatePaymentAmount(body));
-	const depositPercent = paymentAmount > 0 ? 100 : 0;
-	const depositAmount = paymentAmount;
-	const balanceAmount = 0;
-	return { paymentAmount, depositPercent, depositAmount, balanceAmount };
+	const resolvedDepositPercent =
+		typeof depositPercent === "number" && Number.isFinite(depositPercent)
+			? Math.max(0, Math.min(100, depositPercent))
+			: paymentAmount > 0
+				? 100
+				: 0;
+	const depositAmount = roundMoney((paymentAmount * resolvedDepositPercent) / 100);
+	const balanceAmount = roundMoney(Math.max(paymentAmount - depositAmount, 0));
+	return {
+		paymentAmount,
+		depositPercent: resolvedDepositPercent,
+		depositAmount,
+		balanceAmount,
+	};
 }
 
 export function assertClientRequestEditable(request: Record<string, any>) {
@@ -225,7 +240,9 @@ export function paymentStatusForSubmittedPayment(paymentType: string) {
 export function paymentStatusForVerifiedPayment(paymentType: string) {
 	if (paymentType === "deposit") return "deposit_paid";
 	if (paymentType === "partial_balance") return "final_payment_required";
-	return "paid";
+	if (paymentType === "final_balance") return "paid";
+	if (paymentType === "full_payment") return "paid";
+	throw new HttpError(400, "invalid_payment_type", `Unknown payment type: ${paymentType}`);
 }
 
 export function paymentAmountForType(
@@ -260,13 +277,33 @@ export function paymentAmountForType(
 		return 10;
 	}
 
-	const baseAmount = Number(
+	let baseAmount = Number(
 		request.final_amount ??
 			request.payment_amount ??
 			request.quoted_amount ??
 			request.budget_min ??
 			0,
 	);
+
+	// Safety fallback: if the stored amount is 0 but the service tag has a
+	// predefined starting price, use that price so the user is never asked to
+	// pay GHS 0. This handles cases where the amount wasn't properly saved
+	// during request creation (e.g. unrecognized service tag at creation time).
+	if (!Number.isFinite(baseAmount) || baseAmount <= 0) {
+		const pricedTags = serviceTags.filter(
+			(tag) => SERVICE_STARTING_PRICES[tag] !== undefined,
+		);
+		if (pricedTags.length > 0) {
+			const fallbackPrice = pricedTags.reduce(
+				(sum, tag) => sum + (SERVICE_STARTING_PRICES[tag] ?? 0),
+				0,
+			);
+			if (fallbackPrice > 0) {
+				baseAmount = roundMoney(fallbackPrice * (1 - LAUNCH_DISCOUNT_RATE));
+			}
+		}
+	}
+
 	let computedAmount = baseAmount;
 	if (paymentType === "full_payment") {
 		computedAmount = baseAmount;
