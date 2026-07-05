@@ -1393,7 +1393,6 @@ export const billingRoutes = new Elysia({
         mobileMoneyProvider: provider,
         phoneLast4: phone.slice(-4),
         phoneHash,
-        pendingStep: "phone_authorization",
       };
 
       console.info("[billing:paystack.mobile_money] initializing", {
@@ -1405,19 +1404,50 @@ export const billingRoutes = new Elysia({
         provider,
       });
 
-      const paystack = await paystackService.chargeMobileMoney({
-        email: auth.email,
-        amount,
-        currency,
-        phone,
-        provider,
-        reference,
-        metadata,
-      });
-      const chargeData = (paystack.data as Record<string, unknown>) ?? {};
-      const chargeStatus = String(chargeData.status ?? "");
-      const displayText = String((chargeData as any).display_text ?? paystack.message ?? "");
-      const pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
+      // MTN/AirtelTigo: Use Paystack hosted checkout for the full OTP → PIN flow.
+      // The Charge API returns "pay_offline" for MTN/ATL (phone-only auth, no OTP).
+      // Hosted checkout supports the OTP code → PIN authorization flow the user expects.
+      // Telecel (vod) keeps the Charge API for its voucher code system.
+      const useHostedCheckout = provider === "mtn" || provider === "atl";
+      const callbackUrl = normalizePublicCallbackUrl(body.callbackUrl ?? "");
+      let paystack: Awaited<ReturnType<typeof paystackService.initializeCheckout>>;
+      let chargeStatus: string;
+      let displayText: string;
+      let pendingStep: string;
+      let authorizationUrl: string | null = null;
+      let accessCode: string | null = null;
+
+      if (useHostedCheckout) {
+        paystack = await paystackService.initializeCheckout({
+          email: auth.email,
+          amount,
+          currency,
+          reference,
+          channels: ["mobile_money"],
+          callbackUrl,
+          metadata,
+        });
+        const checkoutData = (paystack.data as Record<string, unknown>) ?? {};
+        authorizationUrl = (checkoutData.authorization_url as string) ?? null;
+        accessCode = (checkoutData.access_code as string) ?? null;
+        chargeStatus = "open_checkout";
+        displayText = "Redirecting to Paystack for secure mobile money payment...";
+        pendingStep = "hosted_checkout";
+      } else {
+        paystack = await paystackService.chargeMobileMoney({
+          email: auth.email,
+          amount,
+          currency,
+          phone,
+          provider,
+          reference,
+          metadata,
+        });
+        const chargeData = (paystack.data as Record<string, unknown>) ?? {};
+        chargeStatus = String(chargeData.status ?? "");
+        displayText = String((chargeData as any).display_text ?? paystack.message ?? "");
+        pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
+      }
 
       const [transaction] = await db`
         INSERT INTO paystack_transactions (
@@ -1448,6 +1478,9 @@ export const billingRoutes = new Elysia({
         provider,
         paystack,
         chargeStatus,
+        authorizationUrl,
+        accessCode,
+        checkoutMode: useHostedCheckout ? "hosted" : "charge",
         message: displayText || "Approve the payment prompt on your phone.",
       });
     },
@@ -1458,6 +1491,7 @@ export const billingRoutes = new Elysia({
         billingCycle: t.Optional(t.Union([t.Literal("monthly"), t.Literal("yearly")])),
         phone: t.String(),
         provider: t.String(),
+        callbackUrl: t.Optional(t.String()),
       }),
     },
   )
