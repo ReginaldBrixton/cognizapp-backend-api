@@ -44,3 +44,20 @@ yarn-error.log*
 package-lock.json
 **/*.bun
 .env.bak
+
+# Agent / cloud / AI assistant configuration
+.agents/
+.claude/
+.claude-*
+.devin/
+.windsurf/
+.codex/
+.codex-logs/
+.cursor/
+.cursorrules
+.cursor-tutor/
+.codeium/
+.kiro/
+.playwright-mcp/
+.swc/
+.husky/
