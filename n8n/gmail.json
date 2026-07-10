@@ -114,6 +114,7 @@
         },
         {
             "parameters": {
+                "operation": "send",
                 "sendTo": "={{ $json.to }}",
                 "subject": "={{ $json.subject }}",
                 "message": "={{ $json.html }}",
@@ -140,6 +141,7 @@
         },
         {
             "parameters": {
+                "operation": "send",
                 "sendTo": "={{ $json.to }}",
                 "subject": "={{ $json.subject }}",
                 "message": "={{ $json.html }}",
@@ -166,9 +168,9 @@
         },
         {
             "parameters": {
+                "operation": "send",
                 "sendTo": "={{ $json.to }}",
                 "subject": "={{ $json.subject }}",
-                "emailType": "{{ $json.emailType }}",
                 "message": "={{ $json.message }}",
                 "options": {
                     "appendAttribution": false,
