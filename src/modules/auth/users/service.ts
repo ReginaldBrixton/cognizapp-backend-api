@@ -98,6 +98,9 @@ export const userAuthService = {
       }
     }
 
+    // Build merged providers list — link email to existing account if present
+    const mergedProviders = ["email", ...(existingUser?.providers.filter(p => p !== "email") || [])];
+
     const user = await authRepository.upsertUser({
       email,
       emailVerified: true,
@@ -105,10 +108,10 @@ export const userAuthService = {
       avatarUrl: existingUser?.avatarUrl ?? "",
       provider: "email",
       providerUid: null,
-      providers: ["email"],
+      providers: mergedProviders,
       appMetadata: {
         provider: "email",
-        providers: ["email"],
+        providers: mergedProviders,
       },
       userMetadata: {
         email,
@@ -123,18 +126,27 @@ export const userAuthService = {
       roleOverride,
     });
 
+    // Detect account linking: existing user who didn't have email provider before
+    const wasLinked = !isNewUser && existingUser && !existingUser.providers.includes("email");
+
     return createAuthenticatedSession(user, {
       headers,
       provider: "email",
       isNewUser,
-      activityType: isNewUser ? "registration" : "login",
-      activityDescription: isNewUser ? "New user registered with email OTP" : "User logged in with email OTP",
+      activityType: isNewUser ? "registration" : wasLinked ? "account_link" : "login",
+      activityDescription: isNewUser
+        ? "New user registered with email OTP"
+        : wasLinked
+          ? "Email OTP linked to existing user"
+          : "User logged in with email OTP",
       activityMetadata: {
         provider: "email",
         otp_code_id: metadata.otpCodeId,
         ip_address: metadata.ipAddress,
         user_agent: metadata.userAgent,
         is_new_user: isNewUser,
+        account_linked: wasLinked,
+        previous_providers: existingUser?.providers || [],
       },
     });
   },
@@ -150,6 +162,13 @@ export const userAuthService = {
       decodedToken = await adminAuth.verifyIdToken(firebaseToken);
     } catch (error) {
       throw new HttpError(401, "invalid_firebase_token", "Firebase token is invalid or expired");
+    }
+
+    const signInProvider = decodedToken.firebase?.sign_in_provider || "google.com";
+
+    // Phone auth: no email, only phone_number and uid
+    if (signInProvider === "phone") {
+      return userAuthService.loginWithPhone(decodedToken, headers, metadata);
     }
 
     if (!decodedToken.email) {
@@ -194,6 +213,9 @@ export const userAuthService = {
       }
     }
 
+    // Build merged providers list — link Google to existing account if present
+    const mergedProviders = ["google", ...(existingUser?.providers.filter(p => p !== "google") || [])];
+
     const user = await authRepository.upsertUser({
       email,
       emailVerified: decodedToken.email_verified ?? true,
@@ -201,10 +223,10 @@ export const userAuthService = {
       avatarUrl,
       provider: "google",
       providerUid,
-      providers: ["google", ...(existingUser?.providers.filter(p => p !== "google") || [])],
+      providers: mergedProviders,
       appMetadata: {
         provider: "google",
-        providers: ["google"],
+        providers: mergedProviders,
       },
       userMetadata: {
         email,
@@ -220,17 +242,134 @@ export const userAuthService = {
       roleOverride,
     });
 
+    // Detect account linking: existing user who didn't have google provider before
+    const wasLinked = !isNewUser && existingUser && !existingUser.providers.includes("google");
+
     return createAuthenticatedSession(user, {
       headers,
       provider: "google",
       isNewUser,
-      activityType: isNewUser ? "registration" : "login",
-      activityDescription: isNewUser ? "New user registered with Google" : "User logged in with Google",
+      activityType: isNewUser ? "registration" : wasLinked ? "account_link" : "login",
+      activityDescription: isNewUser
+        ? "New user registered with Google"
+        : wasLinked
+          ? "Google account linked to existing user"
+          : "User logged in with Google",
       activityMetadata: {
         provider: "google",
         ip_address: metadata.ipAddress,
         user_agent: metadata.userAgent,
         is_new_user: isNewUser,
+        account_linked: wasLinked,
+        previous_providers: existingUser?.providers || [],
+      },
+    });
+  },
+
+  async loginWithPhone(
+    decodedToken: Awaited<ReturnType<ReturnType<typeof getFirebaseAdminAuth>["verifyIdToken"]>>,
+    headers: HeaderBag | undefined,
+    metadata: { ipAddress: string; userAgent: string; selectedRole?: string },
+  ): Promise<ExchangeResponse> {
+    const phoneNumber = decodedToken.phone_number;
+    if (!phoneNumber) {
+      throw new HttpError(400, "phone_required", "Phone auth token must contain a phone number");
+    }
+
+    const providerUid = decodedToken.uid;
+    const selectedPortalRole = normalizeSelectedPrivilegedRole(metadata.selectedRole);
+
+    // Look up existing user by phone first, then by provider uid
+    let existingUser = await authRepository.getUserByPhone(phoneNumber);
+    if (!existingUser && providerUid) {
+      existingUser = await authRepository.getUserByProvider("phone", providerUid);
+    }
+
+    let roleOverride: string | undefined;
+    if (existingUser) {
+      assertUserCanAuthenticate(existingUser);
+      if (selectedPortalRole) {
+        const grant = await requireSelectedPortalGrant(existingUser.email, selectedPortalRole);
+        const existingRole = normalizeRole(existingUser.role);
+        if (["ADMIN_USER", "SUPPORT_PROVIDER_USER"].includes(existingRole) && existingRole !== selectedPortalRole) {
+          throw new HttpError(
+            403,
+            "role_mismatch",
+            `You selected the ${privilegedPortalLabel(selectedPortalRole)} portal, but your account role is currently ${privilegedPortalLabel(existingRole)}. Ask an admin to update your access.`,
+          );
+        }
+        roleOverride = grant.role;
+      }
+    }
+
+    const isNewUser = !existingUser;
+    // Use a synthetic email for phone-only users so the DB unique constraint is satisfied
+    // Must be lowercase to satisfy chk_users_email_shape constraint
+    const email = existingUser?.email || `${providerUid.toLowerCase()}@phone.cognizapp.com`;
+    const displayName = existingUser?.displayName || phoneNumber;
+
+    if (isNewUser) {
+      const grant = selectedPortalRole
+        ? await requireSelectedPortalGrant(email, selectedPortalRole)
+        : await getActivePrivilegedGrant(email);
+      if (grant) {
+        assertSelectedRoleMatchesGrant(selectedPortalRole, grant.role);
+        roleOverride = grant.role as string;
+      }
+    }
+
+    // Build merged providers list — link phone to existing account if present
+    const mergedProviders = ["phone", ...(existingUser?.providers.filter(p => p !== "phone") || [])];
+
+    const user = await authRepository.upsertUser({
+      email,
+      emailVerified: existingUser?.emailVerified ?? false,
+      displayName,
+      avatarUrl: existingUser?.avatarUrl || "",
+      provider: "phone",
+      providerUid,
+      providers: mergedProviders,
+      phone: phoneNumber,
+      phoneVerified: true,
+      appMetadata: {
+        provider: "phone",
+        providers: mergedProviders,
+      },
+      userMetadata: {
+        email,
+        phone: phoneNumber,
+        name: displayName,
+      },
+      identityData: {
+        provider: "phone",
+        phone: phoneNumber,
+        phone_verified: true,
+        sub: providerUid,
+      },
+      roleOverride,
+    });
+
+    // Detect account linking: existing user who didn't have phone provider before
+    const wasLinked = !isNewUser && existingUser && !existingUser.providers.includes("phone");
+
+    return createAuthenticatedSession(user, {
+      headers,
+      provider: "phone",
+      isNewUser,
+      activityType: isNewUser ? "registration" : wasLinked ? "account_link" : "login",
+      activityDescription: isNewUser
+        ? "New user registered with phone"
+        : wasLinked
+          ? "Phone linked to existing user"
+          : "User logged in with phone",
+      activityMetadata: {
+        provider: "phone",
+        phone: phoneNumber,
+        ip_address: metadata.ipAddress,
+        user_agent: metadata.userAgent,
+        is_new_user: isNewUser,
+        account_linked: wasLinked,
+        previous_providers: existingUser?.providers || [],
       },
     });
   },

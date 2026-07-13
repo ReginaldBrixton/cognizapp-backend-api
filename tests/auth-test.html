@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CognizApp Auth Test — Google + Phone</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 520px;
+      width: 100%;
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      margin-bottom: 32px;
+      font-size: 0.9rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      background: #0f172a;
+      border-radius: 10px;
+      padding: 4px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .tab.active {
+      background: #334155;
+      color: #fff;
+    }
+
+    .panel {
+      display: none;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .btn-google {
+      background: #fff;
+      color: #1e293b;
+    }
+
+    .btn-google:hover {
+      background: #f1f5f9;
+    }
+
+    .btn-phone {
+      background: #3b82f6;
+      color: #fff;
+    }
+
+    .btn-phone:hover {
+      background: #2563eb;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .google-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .input-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 12px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: #3b82f6;
+    }
+
+    .otp-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .otp-row input {
+      flex: 1;
+    }
+
+    .otp-row button {
+      padding: 12px 20px;
+      background: #334155;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .otp-row button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #recaptcha-container {
+      margin-bottom: 16px;
+      transform: scale(0.9);
+      transform-origin: 0 0;
+    }
+
+    .status {
+      margin-top: 20px;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-family: 'SF Mono', Monaco, monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .status.success {
+      background: #064e3b;
+      color: #6ee7b7;
+      border: 1px solid #10b981;
+    }
+
+    .status.error {
+      background: #450a0a;
+      color: #fca5a5;
+      border: 1px solid #ef4444;
+    }
+
+    .status.info {
+      background: #1e3a5f;
+      color: #93c5fd;
+      border: 1px solid #3b82f6;
+    }
+
+    .config-note {
+      margin-top: 20px;
+      padding: 12px;
+      background: #0f172a;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    .config-note code {
+      color: #94a3b8;
+    }
+
+    .divider {
+      height: 1px;
+      background: #334155;
+      margin: 24px 0;
+    }
+
+    .user-info {
+      margin-top: 20px;
+      padding: 16px;
+      background: #0f172a;
+      border-radius: 10px;
+      border: 1px solid #334155;
+    }
+
+    .user-info h3 {
+      font-size: 0.9rem;
+      color: #94a3b8;
+      margin-bottom: 10px;
+    }
+
+    .user-info .field {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 0.85rem;
+    }
+
+    .user-info .field .key {
+      color: #64748b;
+    }
+
+    .user-info .field .val {
+      color: #e2e8f0;
+      font-family: monospace;
+    }
+
+    .logout-btn {
+      margin-top: 12px;
+      width: 100%;
+      padding: 10px;
+      background: transparent;
+      border: 1px solid #ef4444;
+      border-radius: 8px;
+      color: #ef4444;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    .logout-btn:hover {
+      background: #450a0a;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>CognizApp Auth Test</h1>
+    <p class="subtitle">Google Sign-In & Phone Number Authentication</p>
+    <div
+      style="margin-bottom:20px;padding:12px;background:#0f172a;border-radius:8px;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+      <strong style="color:#3b82f6;">Google Login:</strong> Sign in with <code
+        style="color:#6ee7b7;">reginaldbrixton@gmail.com</code> (your main account)<br>
+      <strong style="color:#8b5cf6;">Phone Login:</strong> Enter your phone number to receive OTP via Firebase<br>
+      <strong style="color:#f59e0b;">Gmail MCP:</strong> Connected as <code
+        style="color:#6ee7b7;">cognizapp@gmail.com</code> (for sending OTPs/emails)
+    </div>
+
+    <div id="auth-section">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('google')">Google Login</button>
+        <button class="tab" onclick="switchTab('phone')">Phone Login</button>
+      </div>
+
+      <!-- Google Login Panel -->
+      <div id="panel-google" class="panel active">
+        <div class="input-group">
+          <label>Selected Role (optional)</label>
+          <select id="google-role">
+            <option value="">Default (user)</option>
+            <option value="ADMIN_USER">Admin Portal</option>
+            <option value="SUPPORT_PROVIDER_USER">Provider Portal</option>
+          </select>
+        </div>
+        <button class="btn btn-google" id="google-btn" onclick="googleLogin()">
+          <svg class="google-icon" viewBox="0 0 24 24">
+            <path fill="#4285F4"
+              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+            <path fill="#34A853"
+              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+            <path fill="#FBBC05"
+              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+            <path fill="#EA4335"
+              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+          </svg>
+          Sign in with Google
+        </button>
+      </div>
+
+      <!-- Phone Login Panel -->
+      <div id="panel-phone" class="panel">
+        <div class="input-group">
+          <label>Phone Number (with country code)</label>
+          <input type="tel" id="phone-number"
+            placeholder="Enter your phone number with country code (e.g. +233241234567)" value="">
+        </div>
+        <div id="recaptcha-container"></div>
+        <button class="btn btn-phone" id="send-otp-btn" onclick="sendOtp()">
+          Send OTP Code
+        </button>
+        <div class="divider"></div>
+        <div class="input-group">
+          <label>OTP Code (6 digits)</label>
+          <div class="otp-row">
+            <input type="text" id="otp-code" placeholder="123456" maxlength="6">
+            <button id="verify-btn" onclick="verifyOtp()" disabled>Verify & Login</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="status" class="status info" style="display:none;"></div>
+    </div>
+
+    <!-- User Info Section (shown after login) -->
+    <div id="user-section" style="display:none;">
+      <div class="user-info">
+        <h3>Authenticated User</h3>
+        <div id="user-fields"></div>
+        <button class="logout-btn" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <div class="config-note">
+      <strong>Backend API:</strong> <code id="api-url"></code><br>
+      <strong>Firebase Project:</strong> <code>cognizapp</code><br>
+      <strong>Auth Domain:</strong> <code>cognizapp.firebaseapp.com</code>
+    </div>
+  </div>
+
+  <!-- Firebase SDK (modular, v10+) -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+    // Firebase config (from ~/.cognizapp/firebase-web-config.json)
+    const firebaseConfig = {
+      apiKey: "AIzaSyCfiZ_gQQ2FISR-jo4u6_CMZvmSx3fRTKs",
+      authDomain: "cognizapp.firebaseapp.com",
+      projectId: "cognizapp",
+      storageBucket: "cognizapp.firebasestorage.app",
+      messagingSenderId: "823036309069",
+      appId: "1:823036309069:web:33a7c32f046c1842023604"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const googleProvider = new GoogleAuthProvider();
+
+    // Backend API URL — change this if needed
+    const API_BASE = window.location.hostname === 'localhost' && window.location.port === '4040'
+      ? 'http://localhost:4040'
+      : 'http://localhost:4040'; // Default to local backend
+
+    document.getElementById('api-url').textContent = API_BASE;
+
+    // Make available globally
+    window._firebase = { auth, googleProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber, API_BASE };
+
+    // Check if user is already logged in
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        // User is signed in with Firebase, but we need to check if we have a backend session
+        console.log('Firebase user detected:', user.uid, user.email || user.phoneNumber);
+      }
+    });
+
+    // ---- Google Login ----
+    window.googleLogin = async function () {
+      const btn = document.getElementById('google-btn');
+      btn.disabled = true;
+      btn.textContent = 'Signing in...';
+      showStatus('Opening Google sign-in popup...', 'info');
+
+      try {
+        const { signInWithPopup, googleProvider, auth, API_BASE } = window._firebase;
+        const result = await signInWithPopup(auth, googleProvider);
+        const user = result.user;
+        const idToken = await user.getIdToken();
+        const selectedRole = document.getElementById('google-role').value;
+
+        showStatus(`Google auth successful!\nUID: ${user.uid}\nEmail: ${user.email}\n\nExchanging token with backend...`, 'info');
+
+        const response = await fetch(`${API_BASE}/api/auth/firebase/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ firebaseToken: idToken, selectedRole: selectedRole || undefined }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success !== false) {
+          showStatus('Login successful! Backend session created.', 'success');
+          displayUser(user, data);
+        } else {
+          showStatus(`Backend exchange failed:\n${JSON.stringify(data, null, 2)}`, 'error');
+        }
+      } catch (error) {
+        showStatus(`Google login error:\n${error.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<svg class="google-icon" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Sign in with Google`;
+      }
+    };
+
+    // ---- Phone Auth ----
+    let recaptchaVerifier = null;
+    let confirmationResult = null;
+
+    window.sendOtp = async function () {
+      const phoneInput = document.getElementById('phone-number');
+      const phone = phoneInput.value.trim();
+      const btn = document.getElementById('send-otp-btn');
+
+      if (!phone) {
+        showStatus('Please enter a phone number with country code (e.g. +233241234567)', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+      showStatus(`Sending OTP to ${phone}...`, 'info');
+
+      try {
+        const { auth, RecaptchaVerifier, signInWithPhoneNumber } = window._firebase;
+
+        // Create invisible reCAPTCHA
+        if (!recaptchaVerifier) {
+          recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+            size: 'normal',
+            callback: () => { /* verified */ },
+            'expired-callback': () => { showStatus('reCAPTCHA expired. Please try again.', 'error'); }
+          });
+          await recaptchaVerifier.render();
+        }
+
+        confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
+        showStatus(`OTP sent to ${phone}! Enter the 6-digit code below.`, 'success');
+        document.getElementById('verify-btn').disabled = false;
+      } catch (error) {
+        showStatus(`OTP send error:\n${error.message}`, 'error');
+        // Reset reCAPTCHA on error
+        if (recaptchaVerifier) {
+          recaptchaVerifier.clear();
+          recaptchaVerifier = null;
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send OTP Code';
+      }
+    };
+
+    window.verifyOtp = async function () {
+      const code = document.getElementById('otp-code').value.trim();
+      const btn = document.getElementById('verify-btn');
+
+      if (!code || code.length !== 6) {
+        showStatus('Please enter the 6-digit OTP code.', 'error');
+        return;
+      }
+
+      if (!confirmationResult) {
+        showStatus('No OTP was sent. Click "Send OTP Code" first.', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Verifying...';
+      showStatus('Verifying OTP code...', 'info');
+
+      try {
+        const userCredential = await confirmationResult.confirm(code);
+        const user = userCredential.user;
+        const idToken = await user.getIdToken();
+
+        showStatus(`Phone auth successful!\nUID: ${user.uid}\nPhone: ${user.phoneNumber}\n\nExchanging token with backend...`, 'info');
+
+        const { API_BASE } = window._firebase;
+        const response = await fetch(`${API_BASE}/api/auth/firebase/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ firebaseToken: idToken }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success !== false) {
+          showStatus('Phone login successful! Backend session created.', 'success');
+          displayUser(user, data);
+        } else {
+          showStatus(`Backend exchange failed:\n${JSON.stringify(data, null, 2)}`, 'error');
+        }
+      } catch (error) {
+        showStatus(`OTP verification error:\n${error.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Verify & Login';
+      }
+    };
+
+    // ---- UI Helpers ----
+    window.switchTab = function (tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(`panel-${tab}`).classList.add('active');
+    };
+
+    function showStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.style.display = 'block';
+      el.textContent = msg;
+      el.className = `status ${type}`;
+    }
+
+    function displayUser(firebaseUser, backendData) {
+      const fields = document.getElementById('user-fields');
+      const user = backendData.user || {};
+      const fields_data = [
+        ['Firebase UID', firebaseUser.uid],
+        ['Email', firebaseUser.email || user.email || 'N/A'],
+        ['Phone', firebaseUser.phoneNumber || user.phone || 'N/A'],
+        ['Display Name', firebaseUser.displayName || user.displayName || 'N/A'],
+        ['Role', user.role || 'N/A'],
+        ['Access Token', (backendData.accessToken || '').substring(0, 50) + '...'],
+        ['Refresh Token', (backendData.refreshToken || '').substring(0, 50) + '...'],
+        ['Expires In', backendData.expiresIn || 'N/A'],
+        ['Is New User', backendData.isNewUser ?? 'N/A'],
+      ];
+
+      fields.innerHTML = fields_data.map(([k, v]) =>
+        `<div class="field"><span class="key">${k}</span><span class="val">${v}</span></div>`
+      ).join('');
+
+      document.getElementById('auth-section').style.display = 'none';
+      document.getElementById('user-section').style.display = 'block';
+    }
+
+    window.logout = async function () {
+      try {
+        await window._firebase.auth.signOut();
+      } catch (e) { /* ignore */ }
+      document.getElementById('auth-section').style.display = 'block';
+      document.getElementById('user-section').style.display = 'none';
+      document.getElementById('status').style.display = 'none';
+      document.getElementById('otp-code').value = '';
+      document.getElementById('verify-btn').disabled = true;
+      confirmationResult = null;
+      if (recaptchaVerifier) {
+        recaptchaVerifier.clear();
+        recaptchaVerifier = null;
+      }
+      showStatus('Logged out.', 'info');
+    };
+  </script>
+</body>
+
+</html>

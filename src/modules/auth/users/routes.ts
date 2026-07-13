@@ -50,9 +50,24 @@ export const usersAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] 
         }
         return ok({
           accessToken: res.accessToken,
+          refreshToken: res.refreshToken,
           expiresIn: res.expiresIn,
           authAction: res.authAction,
           isNewUser: res.isNewUser,
+          userId: res.userId,
+          email: res.email,
+          displayName: res.displayName,
+          avatarUrl: res.avatarUrl,
+          role: res.role,
+          provider: res.provider,
+          user: res.userId ? {
+            id: res.userId,
+            email: res.email,
+            displayName: res.displayName,
+            avatarUrl: res.avatarUrl,
+            role: res.role,
+            provider: res.provider,
+          } : undefined,
         });
       } catch (error) {
         console.error("Error in firebase/exchange:", error);

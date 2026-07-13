@@ -115,6 +115,12 @@ export const authRepository = {
     return rows[0] ? parseUser(rows[0]) : null;
   },
 
+  async getUserByPhone(phone: string) {
+    const db = getDb();
+    const rows = await db`SELECT * FROM auth.users WHERE phone = ${phone} LIMIT 1`;
+    return rows[0] ? parseUser(rows[0]) : null;
+  },
+
   async getUserById(id: string) {
     const db = getDb();
     const rows = await withAuthQueryTiming(
@@ -271,6 +277,8 @@ export const authRepository = {
     appMetadata: Record<string, unknown>;
     identityData: Record<string, unknown>;
     roleOverride?: string;
+    phone?: string | null;
+    phoneVerified?: boolean;
   }) {
     const db = getDb();
     const assignedRole = input.roleOverride ? normalizeRole(input.roleOverride) : defaultRoleForEmail(input.email);
@@ -279,14 +287,16 @@ export const authRepository = {
     const userMetadata = db.json(input.userMetadata as any);
     const identityData = db.json(input.identityData as any);
     const providerUid = input.providerUid || null;
+    const phone = input.phone ?? null;
+    const phoneVerified = input.phoneVerified ?? false;
     const rows = await db`
       INSERT INTO auth.users (
-        email, email_verified, role, permissions, status, is_anonymous, is_sso_user,
+        email, email_verified, phone, phone_verified, role, permissions, status, is_anonymous, is_sso_user,
         display_name, full_name, avatar_url, raw_app_meta_data, raw_user_meta_data,
         providers, provider, provider_uid, identity_data, referral_code, confirmed_at,
         last_sign_in_at, login_count, created_at, updated_at
       ) VALUES (
-        ${input.email}, ${input.emailVerified}, ${assignedRole},
+        ${input.email}, ${input.emailVerified}, ${phone}, ${phoneVerified}, ${assignedRole},
         COALESCE((
           SELECT jsonb_agg(permission ORDER BY permission)
           FROM role_permissions
@@ -300,11 +310,40 @@ export const authRepository = {
       )
       ON CONFLICT (email) DO UPDATE SET
         email_verified = EXCLUDED.email_verified OR auth.users.email_verified,
+        phone = COALESCE(NULLIF(EXCLUDED.phone, ''), auth.users.phone),
+        phone_verified = EXCLUDED.phone_verified OR auth.users.phone_verified,
         display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), auth.users.display_name),
         full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), auth.users.full_name),
         avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), auth.users.avatar_url),
-        raw_app_meta_data = COALESCE(EXCLUDED.raw_app_meta_data, auth.users.raw_app_meta_data),
+        raw_app_meta_data = (
+          CASE
+            WHEN auth.users.raw_app_meta_data IS NULL THEN EXCLUDED.raw_app_meta_data
+            WHEN EXCLUDED.raw_app_meta_data IS NULL THEN auth.users.raw_app_meta_data
+            ELSE (
+              auth.users.raw_app_meta_data
+              || jsonb_build_object(
+                'providers', (
+                  SELECT jsonb_agg(DISTINCT p)
+                  FROM jsonb_array_elements_text(
+                    COALESCE(
+                      auth.users.raw_app_meta_data->'providers',
+                      EXCLUDED.raw_app_meta_data->'providers',
+                      '[]'::jsonb
+                    ) || COALESCE(
+                      EXCLUDED.raw_app_meta_data->'providers',
+                      '[]'::jsonb
+                    )
+                  ) AS p
+                )
+              )
+            )
+          END
+        ),
         raw_user_meta_data = COALESCE(EXCLUDED.raw_user_meta_data, auth.users.raw_user_meta_data),
+        providers = COALESCE(
+          (SELECT array_agg(DISTINCT x) FROM unnest(auth.users.providers || EXCLUDED.providers) AS x),
+          EXCLUDED.providers
+        ),
         provider = COALESCE(NULLIF(EXCLUDED.provider, ''), auth.users.provider),
         provider_uid = CASE
           WHEN EXCLUDED.provider = 'email' THEN NULL
@@ -343,6 +382,68 @@ export const authRepository = {
       RETURNING *
     `;
     return parseUser(rows[0]);
+  },
+
+  /**
+   * Link a new auth provider to an existing user account.
+   * Merges the provider into the providers array and updates provider info.
+   */
+  async linkProviderToUser(userId: string, input: {
+    provider: string;
+    providerUid: string | null;
+    email?: string | null;
+    phone?: string | null;
+    phoneVerified?: boolean;
+    identityData?: Record<string, unknown> | null;
+  }) {
+    const db = getDb();
+    const providerUid = input.providerUid || null;
+    const email = input.email ?? null;
+    const phone = input.phone ?? null;
+    const phoneVerified = input.phoneVerified ?? false;
+    const identityData = input.identityData ? db.json(input.identityData as any) : null;
+    const rows = await db`
+      UPDATE auth.users
+      SET
+        providers = COALESCE(
+          (SELECT array_agg(DISTINCT x) FROM unnest(auth.users.providers || ARRAY[${input.provider}]) AS x),
+          auth.users.providers || ARRAY[${input.provider}]
+        ),
+        provider = COALESCE(NULLIF(${input.provider}, ''), auth.users.provider),
+        provider_uid = CASE
+          WHEN ${input.provider} = 'email' THEN NULL
+          ELSE COALESCE(NULLIF(${providerUid}, ''), auth.users.provider_uid)
+        END,
+        phone = COALESCE(NULLIF(${phone}, ''), auth.users.phone),
+        phone_verified = ${phoneVerified} OR auth.users.phone_verified,
+        email = COALESCE(NULLIF(${email}, ''), auth.users.email),
+        email_verified = CASE
+          WHEN ${email} IS NOT NULL THEN true
+          ELSE auth.users.email_verified
+        END,
+        identity_data = COALESCE(${identityData}, auth.users.identity_data),
+        raw_app_meta_data = (
+          CASE
+            WHEN auth.users.raw_app_meta_data IS NULL THEN auth.users.raw_app_meta_data
+            ELSE (
+              auth.users.raw_app_meta_data
+              || jsonb_build_object(
+                'providers', (
+                  SELECT jsonb_agg(DISTINCT p)
+                  FROM jsonb_array_elements_text(
+                    COALESCE(auth.users.raw_app_meta_data->'providers', '[]'::jsonb)
+                    || jsonb_build_array(${input.provider})
+                  ) AS p
+                )
+              )
+            )
+          END
+        ),
+        updated_at = NOW()
+      WHERE id = ${userId}::uuid
+      RETURNING *
+    `;
+    return rows[0] ? parseUser(rows[0]) : null;
   },
 
   async createSession(input: {

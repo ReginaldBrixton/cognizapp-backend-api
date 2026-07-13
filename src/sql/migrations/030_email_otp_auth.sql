@@ -83,11 +83,13 @@ WHERE provider = 'firebase'
    OR avatar_url ILIKE '%googleusercontent.com%';
 */
 
-ALTER TABLE auth.users ADD CONSTRAINT chk_users_provider_integrity
-  CHECK (
-    (provider IS NULL AND provider_uid IS NULL)
-    OR (provider IN ('email', 'google') AND provider_uid IS NULL)
-    OR (provider IN ('firebase', 'google') AND provider_uid IS NOT NULL AND length(provider_uid) BETWEEN 6 AND 256)
-  );
+DO $$ BEGIN
+  ALTER TABLE auth.users ADD CONSTRAINT chk_users_provider_integrity
+    CHECK (
+      (provider IS NULL AND provider_uid IS NULL)
+      OR (provider IN ('email', 'google') AND provider_uid IS NULL)
+      OR (provider IN ('firebase', 'google', 'phone') AND provider_uid IS NOT NULL AND length(provider_uid) BETWEEN 6 AND 256)
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 ALTER TABLE auth.users ALTER COLUMN provider SET DEFAULT 'email';
