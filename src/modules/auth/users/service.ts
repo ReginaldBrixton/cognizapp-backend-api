@@ -419,6 +419,7 @@ export const userAuthService = {
       sessionId: session.id,
       role: normalizeRole(user.role),
       email: user.email,
+      provider: user.provider ?? undefined,
       deviceFingerprint: session.deviceFingerprint ?? undefined,
     });
 
@@ -439,6 +440,19 @@ export const userAuthService = {
       expiresAt: Math.floor(accessExpiry.getTime() / 1000),
       authAction: "login",
       auth_action: "login",
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName ?? null,
+        display_name: user.displayName ?? null,
+        avatarUrl: user.avatarUrl ?? null,
+        avatar_url: user.avatarUrl ?? null,
+        role: normalizeRole(user.role),
+        provider: user.provider ?? null,
+        providers: user.providers ?? [],
+        emailVerified: user.emailVerified ?? false,
+        email_verified: user.emailVerified ?? false,
+      },
     };
   },
 

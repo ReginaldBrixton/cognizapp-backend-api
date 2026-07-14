@@ -228,6 +228,7 @@ export async function createAuthenticatedSession(
     sessionId: placeholderSession.id,
     role: normalizeRole(user.role),
     email: user.email,
+    provider: user.provider ?? undefined,
     deviceFingerprint: currentFingerprint,
   });
   const refreshToken = await signRefreshToken({

@@ -8,6 +8,7 @@ export type AccessClaims = {
   sessionId: string;
   role: string;
   email: string;
+  provider?: string;
   deviceFingerprint?: string;
 };
 
@@ -45,6 +46,9 @@ export async function signAccessToken(claims: AccessClaims): Promise<string> {
     role: claims.role,
     email: claims.email,
   };
+  if (claims.provider) {
+    payload.provider = claims.provider;
+  }
   if (claims.deviceFingerprint) {
     payload.dfp = claims.deviceFingerprint;
   }
@@ -78,6 +82,7 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims> {
     sessionId: String(payload.sid),
     role: String(payload.role),
     email: String(payload.email),
+    provider: payload.provider ? String(payload.provider) : undefined,
     deviceFingerprint: payload.dfp ? String(payload.dfp) : undefined,
   };
 }

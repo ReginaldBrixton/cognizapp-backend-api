@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { HttpError } from "../../../lib/errors";
 import { fail, ok } from "../../../lib/http";
 import { isTransientDbError } from "../../../lib/db";
+import { cache } from "../../../lib/cache";
 import { resolveAuth } from "../middleware";
 import { getForwardedIp, readHeader, refreshCookie } from "../helpers";
 import { authErrorHandler } from "../route-error-handler";
@@ -262,7 +263,13 @@ export const usersAuthRoutes = new Elysia({ prefix: "/api/auth", tags: ["auth"] 
   })
   .get("/me", async ({ headers }) => {
     const auth = await resolveAuth(headers);
-    return ok({ user: auth.user ?? await userAuthService.me(auth.userId) });
+    // Try Redis cache first (60s TTL) to avoid repeated DB queries
+    const cacheKey = `auth:me:${auth.userId}`;
+    const cached = await cache.getJson(cacheKey);
+    if (cached) return ok({ user: cached });
+    const user = auth.user ?? await userAuthService.me(auth.userId);
+    await cache.setJson(cacheKey, user, 60);
+    return ok({ user });
   })
   .get("/sessions", async ({ headers }) => {
     const auth = await resolveAuth(headers);
