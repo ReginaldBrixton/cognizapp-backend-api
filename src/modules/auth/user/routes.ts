@@ -7,7 +7,7 @@ import { isTransientDbError } from "../../../lib/db";
 import { resolveAuth } from "../middleware";
 import { getForwardedIp, readHeader, refreshCookie } from "../helpers";
 import { otpService } from "./otp-service";
-import { userAuthService } from "./service";
+import { userAuthService } from "../users/service";
 
 const otpRequestBody = t.Object({
   email: t.String({ format: "email" }),

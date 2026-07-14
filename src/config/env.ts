@@ -203,6 +203,9 @@ function createEnv(): AppEnv {
     if (!envObj.isDevelopment) {
       throw new Error("DEV_AUTH_ENDPOINT_ENABLED can only be used when ENVIRONMENT=development");
     }
+    if (envObj.vercelEnv === "production") {
+      throw new Error("DEV_AUTH_ENDPOINT_ENABLED must not be set on Vercel production");
+    }
 
     if (envObj.devAuthEndpointSecret.length < 48) {
       throw new Error(
@@ -214,6 +217,9 @@ function createEnv(): AppEnv {
   if (envObj.devImpersonationEnabled) {
     if (!envObj.isDevelopment) {
       throw new Error("DEV_IMPERSONATION_ENABLED can only be used when ENVIRONMENT=development");
+    }
+    if (envObj.vercelEnv === "production") {
+      throw new Error("DEV_IMPERSONATION_ENABLED must not be set on Vercel production");
     }
 
     if (envObj.devImpersonationSecret.length < 64) {
@@ -231,7 +237,7 @@ function createEnv(): AppEnv {
   //   3. TEST_AUTH_BYPASS_EMAIL          (email of user to impersonate)
   //
   // Remove TEST_AUTH_BYPASS_ENABLED to instantly kill the bypass on any
-  // environment. On production, a warning is logged when enabled.
+  // environment. BLOCKED in production — throws a hard error.
   if (envObj.testAuthBypassEnabled) {
     if (envObj.testAuthBypassToken.length < 32) {
       throw new Error(
@@ -241,10 +247,10 @@ function createEnv(): AppEnv {
     if (!envObj.testAuthBypassEmail) {
       throw new Error("TEST_AUTH_BYPASS_EMAIL is required when test auth bypass is enabled");
     }
-    if (envObj.vercelEnv === "production") {
-      console.warn(
-        "[security] TEST_AUTH_BYPASS_ENABLED is set on production. " +
-          "Remove this env var to disable the test auth bypass.",
+    if (envObj.isProduction || envObj.vercelEnv === "production") {
+      throw new Error(
+        "TEST_AUTH_BYPASS_ENABLED must not be set in production. " +
+        "Remove this env var from your production environment immediately.",
       );
     }
   }

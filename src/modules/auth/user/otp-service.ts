@@ -12,8 +12,8 @@ import {
   assertSelectedRoleMatchesGrant,
   normalizeSelectedPrivilegedRole,
   type PrivilegedPortalRole,
-} from "./portal-role";
-import { userAuthService } from "./service";
+} from "../portal-role";
+import { userAuthService } from "../users/service";
 import { defaultPrivilegedRoleForEmail, isDefaultAdminEmail } from "../privileged-defaults";
 
 type HeaderBag = Headers | Record<string, string | undefined>;

@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,7 +18,9 @@
       --ok: #067647;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
@@ -250,6 +253,7 @@
     }
 
     @media (max-width: 860px) {
+
       main,
       .grid {
         grid-template-columns: 1fr;
@@ -257,6 +261,7 @@
     }
   </style>
 </head>
+
 <body>
   <header>
     <div class="brand">
@@ -273,7 +278,8 @@
     <section class="stack">
       <div>
         <h1>Start a real Paystack checkout.</h1>
-        <p class="muted">This page creates a support request, asks the local backend to initialize Paystack checkout, then opens the Paystack payment page. The secret key stays on the server.</p>
+        <p class="muted">This page creates a support request, asks the local backend to initialize Paystack checkout,
+          then opens the Paystack payment page. The secret key stays on the server.</p>
       </div>
 
       <div class="total">
@@ -308,7 +314,7 @@
           </label>
           <label>
             Dev Auth Secret
-            <input id="devSecret" type="password" value="cognizap_dev_auth_secret_testing_2026_v1_minimum_48chars_ok" required>
+            <input id="devSecret" type="password" placeholder="Enter DEV_AUTH_ENDPOINT_SECRET from .env" required>
           </label>
           <label>
             Customer Email
@@ -417,7 +423,7 @@
       let body = text;
       try {
         body = JSON.parse(text);
-      } catch {}
+      } catch { }
       if (!response.ok) {
         const error = new Error(
           typeof body === "object"
@@ -536,4 +542,5 @@
     checkServer();
   </script>
 </body>
+
 </html>

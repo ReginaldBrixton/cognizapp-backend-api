@@ -1,5 +1,5 @@
 import { HttpError } from "../../lib/errors";
-import { verifyAccessToken } from "../../lib/crypto";
+import { verifyAccessToken, safeEqualString } from "../../lib/crypto";
 import { cache } from "../../lib/cache";
 import { getDb } from "../../lib/db";
 import { env } from "../../config/env";
@@ -44,10 +44,12 @@ export async function resolveAuth(headers: Headers | Record<string, string | und
   // Requires TEST_AUTH_BYPASS_ENABLED=true + token + email (triple safety).
   // The bypass still loads the real user from the DB so ownership checks
   // (user_key_id = auth.userId) work correctly.
+  // BLOCKED in production — the bypass is dev/staging only.
   if (
     env.testAuthBypassEnabled &&
+    !env.isProduction &&
     scheme?.toLowerCase() === "bearer" &&
-    token === env.testAuthBypassToken
+    safeEqualString(token, env.testAuthBypassToken)
   ) {
     const db = getDb();
     const [row] = await db`
