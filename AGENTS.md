@@ -630,6 +630,55 @@ All existing imports from `"./shared"` or `"../support/shared"` continue to work
 Before claiming a task is done, run `bun run typecheck` and `bun test`. Fix any
 errors before reporting completion.
 
+### Firefox Browser Testing (firefox-devtools MCP)
+
+For interactive verification of frontend integrations or API endpoints from a
+real browser, use the **`firefox-devtools`** MCP server to drive the installed
+Firefox browser (`Mozilla Firefox 152.0.4`). This is useful when headless
+Chromium (`playwright`) is not enough or when debugging Firefox-specific
+behavior.
+
+**Server name:** `firefox-devtools`
+**Prerequisite:** A dev server must be running (e.g., frontend on
+`http://localhost:3000` or this API on `http://localhost:4040`).
+
+#### Available Tools
+
+| Tool | Purpose |
+|---|---|
+| `new_page` / `navigate_page` | Open or navigate a tab to a URL |
+| `take_snapshot` | Capture DOM snapshot with stable UIDs |
+| `click_by_uid` / `hover_by_uid` | Click/hover elements by UID from snapshot |
+| `fill_by_uid` / `fill_form_by_uid` | Fill input/textarea fields |
+| `screenshot_page` / `screenshot_by_uid` | Capture full-page or element screenshots |
+| `list_console_messages` | View/filter browser console messages |
+| `list_network_requests` / `get_network_request` | Inspect network traffic |
+| `set_viewport_size` | Resize viewport |
+| `list_pages` / `select_page` / `close_page` | Tab management |
+| `get_firefox_info` / `get_firefox_output` / `restart_firefox` | Browser diagnostics |
+
+#### Critical Rules
+
+1. **Always `take_snapshot` before interacting** — UIDs are required for
+   `click_by_uid`, `fill_by_uid`, etc.
+2. **UIDs become stale after navigation or re-render** — re-snapshot after every
+   state change.
+3. **Prefer UIDs over text selectors** — text matches can be ambiguous.
+4. **Check `list_console_messages(level="error")`** after
+   navigation/interaction.
+
+#### Typical Workflow
+
+1. Start the relevant dev server(s).
+2. `new_page(url="http://localhost:<PORT>")`
+3. `take_snapshot` → collect element UIDs
+4. `list_console_messages(level="error")` → check for errors
+5. `click_by_uid(uid="<uid>")` / `fill_by_uid(uid="<uid>", value="...")`
+6. `take_snapshot` → re-snapshot after interaction
+7. `screenshot_page` → visual verification
+8. `set_viewport_size(width=375, height=812)` → test mobile layout
+9. `close_page(pageIdx=0)` → cleanup
+
 ## Environment Variables
 
 All env vars are loaded in `src/config/env.ts`. **Do not commit actual values.**
