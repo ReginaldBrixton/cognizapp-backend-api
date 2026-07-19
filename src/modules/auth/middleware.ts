@@ -79,6 +79,41 @@ export async function resolveAuth(headers: Headers | Record<string, string | und
     };
   }
 
+  // ── MCP Provider Passkey (production-safe) ───────────────────────────
+  // A static passkey for the MCP server. No JWT tokens needed.
+  // Sent via the X-MCP-Passkey header. Works in ALL environments including
+  // production. Only requires MCP_PROVIDER_PASSKEY env var.
+  // Authenticates as the cognizapp@gmail.com provider account.
+  const mcpPasskey = readHeader(headers, "x-mcp-passkey");
+  if (mcpPasskey && env.mcpProviderPasskey && safeEqualString(mcpPasskey.trim(), env.mcpProviderPasskey)) {
+    const db = getDb();
+    const [row] = await db`
+      SELECT * FROM auth.users WHERE lower(email) = 'cognizapp@gmail.com'
+      LIMIT 1
+    `;
+    if (!row) {
+      throw new HttpError(
+        401,
+        "mcp_passkey_user_not_found",
+        "MCP passkey account (cognizapp@gmail.com) not found in database",
+      );
+    }
+    const user = row as unknown as UserRecord;
+    if (user.status === "banned" || user.status === "deleted" || user.status === "disabled") {
+      throw new HttpError(403, "account_disabled", "MCP passkey account is not active");
+    }
+    return {
+      actorId: user.id,
+      userId: user.id,
+      email: user.email,
+      role: normalizeRole(user.role),
+      actorType: getActorType(user.role),
+      permissions: user.permissions ?? [],
+      sessionId: "mcp-passkey-session",
+      user,
+    };
+  }
+
   // ── Normal JWT auth flow ─────────────────────────────────────────────
   if (scheme?.toLowerCase() !== "bearer" || !token) {
     throw new HttpError(401, "unauthorized", "Missing or invalid Authorization header");

@@ -33,6 +33,7 @@ export type AppEnv = {
   testAuthBypassEnabled: boolean;
   testAuthBypassToken: string;
   testAuthBypassEmail: string;
+  mcpProviderPasskey: string;
   vercelEnv: string;
   n8nGmailSendWebhookUrl: string;
   n8nWebhookSecret: string;
@@ -169,6 +170,11 @@ function createEnv(): AppEnv {
     testAuthBypassEnabled: getBoolean("TEST_AUTH_BYPASS_ENABLED", false),
     testAuthBypassToken: process.env.TEST_AUTH_BYPASS_TOKEN?.trim() ?? "",
     testAuthBypassEmail: process.env.TEST_AUTH_BYPASS_EMAIL?.trim().toLowerCase() ?? "",
+    // ── MCP Provider Passkey ────────────────────────────────────────────
+    // A static passkey that authenticates the MCP server as the
+    // cognizapp@gmail.com provider user. No JWT tokens needed.
+    // Works in all environments including production.
+    mcpProviderPasskey: process.env.MCP_PROVIDER_PASSKEY?.trim() ?? "",
     vercelEnv: process.env.VERCEL_ENV?.trim() ?? "",
     n8nGmailSendWebhookUrl: process.env.N8N_GMAIL_SEND_WEBHOOK_URL?.trim() ?? "",
     n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET?.trim() ?? "",
@@ -253,6 +259,14 @@ function createEnv(): AppEnv {
         "Remove this env var from your production environment immediately.",
       );
     }
+  }
+
+  // ── MCP Provider Passkey validation ──────────────────────────────────
+  // A production-safe static passkey for the MCP server.
+  // Only requires MCP_PROVIDER_PASSKEY (>=32 chars). The passkey
+  // authenticates as the cognizapp@gmail.com provider account.
+  if (envObj.mcpProviderPasskey && envObj.mcpProviderPasskey.length < 32) {
+    throw new Error("MCP_PROVIDER_PASSKEY must be at least 32 characters long");
   }
 
   return envObj;
