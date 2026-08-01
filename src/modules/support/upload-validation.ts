@@ -9,9 +9,16 @@ import {
 	MAX_SUPPORT_UPLOAD_FILES,
 } from "./constants";
 
+const AUDIO_EXTENSIONS = new Set(["webm", "mp3", "wav", "ogg", "m4a", "aac"]);
+
 export function extensionFor(fileName: string) {
 	const extension = fileName.split(".").pop()?.trim().toLowerCase() ?? "";
 	return extension === fileName.toLowerCase() ? "" : extension;
+}
+
+export function isVoiceNoteUpload(file: File) {
+	const extension = extensionFor(file.name);
+	return file.type.toLowerCase().startsWith("audio/") || AUDIO_EXTENSIONS.has(extension);
 }
 
 export function validateSupportUploads(files: File[], existingCount: number) {
@@ -30,13 +37,18 @@ export function validateSupportUploads(files: File[], existingCount: number) {
 			actual: files.length,
 		});
 	}
-	if (existingCount + files.length > MAX_SUPPORT_UPLOAD_FILES) {
+
+	// Voice notes are conversational messages, not retained request documents.
+	// They still obey the per-upload count and 50 MB per-file limits, but they
+	// must not be rejected because a long-running request already has 10 files.
+	const countableDocuments = files.filter((file) => !isVoiceNoteUpload(file));
+	if (existingCount + countableDocuments.length > MAX_SUPPORT_UPLOAD_FILES) {
 		errors.push({
 			code: "request_file_limit_reached",
-			message: `This request can keep up to ${MAX_SUPPORT_UPLOAD_FILES} uploaded files.`,
+			message: `This request can keep up to ${MAX_SUPPORT_UPLOAD_FILES} uploaded documents. Voice notes do not count toward this limit.`,
 			limit: MAX_SUPPORT_UPLOAD_FILES,
 			existingCount,
-			incomingCount: files.length,
+			incomingCount: countableDocuments.length,
 		});
 	}
 
