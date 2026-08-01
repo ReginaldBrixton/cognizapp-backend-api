@@ -15,10 +15,10 @@ export type SupportAiResponse = {
   actionItems: SupportAiActionItem[];
 };
 
-const DEFAULT_MODEL = "gemini-3.1-flash-lite";
+const DEFAULT_MODEL = "gemini-3.6-flash";
 const PUBLIC_MODEL_NAMES: Record<string, string> = {
-  "gemini-3.1-flash-lite": "CognizApp Lite",
-  "gemini-3.1-flash": "CognizApp Pro",
+  "gemini-3.5-flash-lite": "CognizApp Lite",
+  "gemini-3.6-flash": "CognizApp Pro",
 };
 const SUPPORT_AI_MAX_ATTEMPTS = 3;
 const SUPPORT_AI_TIMEOUT_MS = 15000;
@@ -49,7 +49,7 @@ export function getSupportAiModel() {
 }
 
 export function getPublicSupportAiModelName(model = getSupportAiModel()) {
-  return PUBLIC_MODEL_NAMES[model] || "CognizApp Lite";
+  return PUBLIC_MODEL_NAMES[model] || "CognizApp Pro";
 }
 
 export function hashSupportPrompt(input: unknown) {
@@ -92,8 +92,8 @@ function fallbackResponse(prompt: string): SupportAiResponse {
 }
 
 function parseSupportAiJson(text: string): SupportAiResponse {
-  const trimmed = text.trim();
-  const cleaned = trimmed
+  const cleaned = text
+    .trim()
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/i, "")
     .trim();
@@ -116,7 +116,11 @@ function parseSupportAiJson(text: string): SupportAiResponse {
   };
 }
 
-async function postSupportAiPayload(model: string, apiKey: string, payload: Record<string, unknown>) {
+async function postSupportAiPayload(
+  model: string,
+  apiKey: string,
+  payload: Record<string, unknown>,
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SUPPORT_AI_TIMEOUT_MS);
   try {
@@ -176,27 +180,20 @@ export async function generateSupportAiResponse(input: {
   ];
 
   const payload = {
-    systemInstruction: {
-      parts: [{ text: systemPrompt }],
-    },
-    contents: [
-      {
-        role: "user",
-        parts: userParts,
-      },
-    ],
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: "user", parts: userParts }],
     generationConfig: {
-      temperature: 0.25,
       responseMimeType: "application/json",
       responseSchema: SUPPORT_AI_RESPONSE_SCHEMA,
-      thinkingConfig: {
-        thinkingBudget: 128,
-      },
+      thinkingConfig: { thinkingLevel: "low" },
     },
   };
 
   let lastError: unknown = null;
-  const attempts = Math.min(SUPPORT_AI_MAX_ATTEMPTS, Math.max(1, getConfiguredGeminiKeyCount()));
+  const attempts = Math.min(
+    SUPPORT_AI_MAX_ATTEMPTS,
+    Math.max(1, getConfiguredGeminiKeyCount()),
+  );
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const attemptKey = attempt === 0 ? apiKey : await getNextGeminiKey();
     if (!attemptKey) break;
@@ -204,7 +201,9 @@ export async function generateSupportAiResponse(input: {
       const response = await postSupportAiPayload(model, attemptKey, payload);
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
-        throw new Error(`CognizApp AI request failed with ${response.status}: ${detail.slice(0, 500)}`);
+        throw new Error(
+          `CognizApp AI request failed with ${response.status}: ${detail.slice(0, 500)}`,
+        );
       }
       const data = (await response.json()) as any;
       const text = String(
@@ -212,10 +211,17 @@ export async function generateSupportAiResponse(input: {
           ?.map((part: Record<string, unknown>) => part.text ?? "")
           .join("\n") ?? "",
       );
-      return { model, ...parseSupportAiJson(text), provider: "cognizap" as const };
+      return {
+        model,
+        ...parseSupportAiJson(text),
+        provider: "cognizap" as const,
+      };
     } catch (error) {
       lastError = error;
-      console.warn(`[gemini] Attempt ${attempt + 1}/${attempts} failed:`, error instanceof Error ? error.message : String(error));
+      console.warn(
+        `[gemini] Attempt ${attempt + 1}/${attempts} failed:`,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
