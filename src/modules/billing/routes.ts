@@ -1322,6 +1322,9 @@ export const billingRoutes = new Elysia({
       }
 
       const amount = Number(cycle === "yearly" ? plan.yearly_price : plan.monthly_price);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new HttpError(400, "invalid_plan_amount", "The selected plan does not have a valid payable price");
+      }
       const currency = String(plan.currency ?? "GHS");
 
       // Check for reusable pending transaction (same phone + provider)
