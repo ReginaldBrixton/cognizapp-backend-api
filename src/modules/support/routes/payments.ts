@@ -235,7 +235,7 @@ export const paymentRoutes = new Elysia()
         const previousReference=String(previous.provider_reference ?? previous.transaction_id);
         const result=await confirmSupportPaystackPayment({reference:previousReference,auth,requestId:params.id});
         if(result.verified) throw new HttpError(409,"payment_already_verified","Payment already verified. Refresh the payment status.");
-        const status=String((result.paystack?.data as Record<string,unknown> | undefined)?.status ?? "").toLowerCase();
+        const status=String(('data' in result.paystack ? (result.paystack.data as Record<string,unknown> | undefined)?.status : undefined) ?? "").toLowerCase();
         if(["failed","abandoned","reversed","timeout"].includes(status)) terminalReferences.add(previousReference);
         else {
           const same=String(previous.pending_provider ?? "")===provider && String(previous.pending_phone_hash ?? "")===phoneHash;
@@ -861,7 +861,7 @@ export const paymentRoutes = new Elysia()
 
       const verification = await confirmSupportPaystackPayment({reference,auth,requestId:params.id});
       if(verification.verified) throw new HttpError(409,"payment_already_verified","Payment was verified. Refresh the payment status.");
-      const gatewayStatus=String((verification.paystack?.data as Record<string,unknown> | undefined)?.status ?? "").toLowerCase();
+      const gatewayStatus=String(('data' in verification.paystack ? (verification.paystack.data as Record<string,unknown> | undefined)?.status : undefined) ?? "").toLowerCase();
       if(!["failed","abandoned","reversed","timeout"].includes(gatewayStatus)) {
         throw new HttpError(409,"payment_still_pending","Payment is still awaiting confirmation. Check again after the authorization window ends.");
       }
