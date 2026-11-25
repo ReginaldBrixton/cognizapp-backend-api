@@ -8,6 +8,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      ENVIRONMENT: test
+      DATABASE_URL_DEV: postgresql://test:test@127.0.0.1:5432/cognizap
+      JWT_SECRET: test-only-local-fixture-not-a-production-secret
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
