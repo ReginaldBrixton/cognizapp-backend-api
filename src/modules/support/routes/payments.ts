@@ -131,7 +131,7 @@ export const paymentRoutes = new Elysia()
       }
 
       const phone = paystackService.normalizeMobileMoneyPhone(String(body.phone ?? ""));
-      if (!phone || phone.length < 9) {
+      if (!/^0\d{9}$/.test(phone)) {
         throw new HttpError(
           400,
           "invalid_mobile_money_phone",
@@ -261,6 +261,7 @@ export const paymentRoutes = new Elysia()
           Number(pendingPayment.expires_in_seconds ?? MOBILE_MONEY_ATTEMPT_TTL_SECONDS),
         );
         const isHosted = pendingStep === "hosted_checkout";
+        // Existing hosted attempts are verified in place, not silently reopened.
         return ok({
           data: toCamel(pendingPayment),
           request: toCamel(supportRequest),
@@ -367,50 +368,21 @@ export const paymentRoutes = new Elysia()
         mobileMoneyProvider: provider,
       };
 
-      // Ghana MoMo Charge API supports MTN, AT and Telecel phone authorization.
-      const useHostedCheckout = false;
-      const callbackUrl = normalizePublicCallbackUrl(
-        body.callbackUrl ?? "",
-      );
-      let paystack: Awaited<ReturnType<typeof paystackService.initializeCheckout>>;
-      let chargeStatus: string;
-      let displayText: string;
-      let pendingStep: string;
-      let authorizationUrl: string | null = null;
-      let accessCode: string | null = null;
-
-      if (useHostedCheckout) {
-        paystack = await paystackService.initializeCheckout({
-          email: String(supportRequest.email ?? auth.email),
-          amount,
-          currency: String(supportRequest.currency ?? "GHS"),
-          reference,
-          channels: ["mobile_money"],
-          callbackUrl,
-          metadata,
-        });
-        const checkoutData = (paystack.data as Record<string, unknown>) ?? {};
-        authorizationUrl =
-          (checkoutData.authorization_url as string) ?? null;
-        accessCode = (checkoutData.access_code as string) ?? null;
-        chargeStatus = "open_checkout";
-        displayText = "Redirecting to Paystack for secure mobile money payment...";
-        pendingStep = "hosted_checkout";
-      } else {
-        paystack = await paystackService.chargeMobileMoney({
-          email: String(supportRequest.email ?? auth.email),
-          amount,
-          currency: String(supportRequest.currency ?? "GHS"),
-          phone,
-          provider,
-          reference,
-          metadata,
-        });
-        const chargeData = (paystack.data as Record<string, unknown>) ?? {};
-        chargeStatus = String(chargeData.status ?? "");
-        displayText = String((chargeData as any).display_text ?? paystack.message ?? "");
-        pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
-      }
+      // Direct mobile money charge: never initialize hosted checkout here.
+      // The provider sends the wallet approval prompt to the handset.
+      const paystack = await paystackService.chargeMobileMoney({
+        email: String(supportRequest.email ?? auth.email),
+        amount,
+        currency: String(supportRequest.currency ?? "GHS"),
+        phone,
+        provider,
+        reference,
+        metadata,
+      });
+      const chargeData = (paystack.data ?? {}) as Record<string, unknown>;
+      const chargeStatus = String(chargeData.status ?? "").toLowerCase();
+      const displayText = String(chargeData.display_text ?? paystack.message ?? "");
+      const pendingStep = chargeStatus === "send_otp" ? "otp" : "phone_authorization";
 
       const [payment] = await db`
         INSERT INTO support_payments (
@@ -484,9 +456,7 @@ export const paymentRoutes = new Elysia()
         provider,
         paystack,
         chargeStatus,
-        authorizationUrl,
-        accessCode,
-        checkoutMode: useHostedCheckout ? "hosted" : "charge",
+        checkoutMode: "charge",
         message: displayText || "Approve the payment prompt on your phone.",
       });
     },
