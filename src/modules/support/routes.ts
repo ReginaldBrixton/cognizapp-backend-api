@@ -43,6 +43,7 @@ import { deliveryRoutes } from "./routes/deliveries";
 import { previewRoutes } from "./routes/previews";
 import { milestoneRoutes } from "./routes/milestones";
 import { revisionRoutes } from "./routes/revisions";
+import { clientLiveRoutes } from "./routes/client-live";
 
 // ── Per-request log context (correlated via the Request object) ──────────────
 
@@ -146,6 +147,7 @@ export const supportRoutes = new Elysia({
   .use(miscRoutes)
   .use(codesRoutes)
   .use(clientRequestRoutes)
+  .use(clientLiveRoutes)
   .use(paymentRoutes)
   .use(fileRoutes)
   .use(quoteRoutes)
