@@ -17,3 +17,6 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run build
+
+      - name: Bundle the serverless entrypoint
+        run: bun build api/index.ts --target=bun --outdir=/tmp/cognizapp-build
