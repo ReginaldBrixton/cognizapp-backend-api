@@ -68,6 +68,33 @@ export default async function handler(req: any, res: any): Promise<void> {
       }
     });
 
+    // Stream SSE responses immediately; arrayBuffer() would withhold every
+    // event until the connection closes. Other response types retain the
+    // original adapter behavior.
+    if (response.headers.get("content-type")?.includes("text/event-stream") && response.body) {
+      const reader = response.body.getReader();
+      let closed = false;
+      const onClose = () => {
+        closed = true;
+        void reader.cancel().catch(() => {});
+      };
+      res.once("close", onClose);
+      try {
+        res.flushHeaders?.();
+        while (!closed) {
+          const { done, value } = await reader.read();
+          if (done || closed) break;
+          res.write(Buffer.from(value));
+        }
+      } catch (error) {
+        if (!closed) console.warn("[vercel] event stream closed", error instanceof Error ? error.message : "stream error");
+      } finally {
+        res.removeListener("close", onClose);
+        try { reader.releaseLock(); } catch {}
+        if (!closed && !res.writableEnded) res.end();
+      }
+      return;
+    }
     const body = await response.arrayBuffer();
     res.end(Buffer.from(body));
   } catch (error) {

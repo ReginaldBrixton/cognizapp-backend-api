@@ -33,12 +33,13 @@ export const clientLiveRoutes = new Elysia().get("/client/live", async ({ header
   let wake: (() => void) | undefined;
   const stop = () => { stopped = true; if (timer) clearTimeout(timer); wake?.(); };
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
+    start(controller) {
+      const pump = async () => {
       request.signal.addEventListener("abort", stop, { once: true });
       const started = Date.now();
       let previous = "";
       try {
-        while (!stopped && !request.signal.aborted && Date.now() - started < 55000) {
+        while (!stopped && !request.signal.aborted && Date.now() - started < 40000) {
           const snapshot = JSON.stringify(await revisions(auth.userId));
           if (stopped || request.signal.aborted) break;
           if (snapshot !== previous) {
@@ -53,6 +54,8 @@ export const clientLiveRoutes = new Elysia().get("/client/live", async ({ header
         stop(); request.signal.removeEventListener("abort", stop);
         try { controller.close(); } catch {}
       }
+      };
+      void pump();
     },
     cancel() { stop(); }
   });
