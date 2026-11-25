@@ -43,7 +43,6 @@ import { deliveryRoutes } from "./routes/deliveries";
 import { previewRoutes } from "./routes/previews";
 import { milestoneRoutes } from "./routes/milestones";
 import { revisionRoutes } from "./routes/revisions";
-import { clientLiveRoutes } from "./routes/client-live";
 
 // ── Per-request log context (correlated via the Request object) ──────────────
 
@@ -155,7 +154,3 @@ export const supportRoutes = new Elysia({
   .use(previewRoutes)
   .use(milestoneRoutes)
   .use(revisionRoutes);
-
-// Register the independent live stream without expanding the exported router's
-// already-large inferred route schema throughout the application type graph.
-supportRoutes.use(clientLiveRoutes);

@@ -223,6 +223,14 @@ export function buildDraftPayload(body: Record<string, any>) {
 		assistance24x7: body.assistance24x7 ?? false,
 		correctionCommentCount: body.correctionCommentCount ?? null,
 		assignmentInstructions: body.assignmentInstructions ?? null,
+		presentation_config: body.presentation_config ?? null,
+		full_project_config: body.full_project_config ?? null,
+		data_analysis_config: body.data_analysis_config ?? null,
+		document_config: body.document_config ?? null,
+		research_config: body.research_config ?? null,
+		citation_config: body.citation_config ?? null,
+		supervisor_config: body.supervisor_config ?? null,
+		slideCount: body.slideCount ?? null,
 		assignment_config:
 			body.assignment_config ??
 			(body.assignmentInstructions ? { instructions: body.assignmentInstructions } : null),

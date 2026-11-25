@@ -97,6 +97,7 @@ export function bodyWithAuthoritativeEstimate(body: Record<string, any>): Record
 		depositPercent: 100,
 		costEstimate: {
 			...clientEstimate,
+			breakdown: localEstimate.breakdown,
 			total: trustedTotal,
 			min: trustedTotal,
 			max: trustedMax,

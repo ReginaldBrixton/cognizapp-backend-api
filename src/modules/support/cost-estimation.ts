@@ -82,9 +82,9 @@ const LAUNCH_DISCOUNT_RATE = 0.5;
 // ── Scope multipliers ────────────────────────────────────────────────────────
 
 const URGENCY_MULTIPLIERS = [
-  { maxDays: 3, multiplier: 1.5, label: "Urgent (< 3 days)" },
-  { maxDays: 7, multiplier: 1.25, label: "Express (3\u20137 days)" },
-  { maxDays: 14, multiplier: 1.1, label: "Standard (7\u201314 days)" },
+  { maxDays: 3, multiplier: 1.5, label: "Urgent (up to 3 days)" },
+  { maxDays: 7, multiplier: 1.25, label: "Express (over 3 to 7 days)" },
+  { maxDays: 14, multiplier: 1.1, label: "Standard (over 7 to 14 days)" },
   { maxDays: Infinity, multiplier: 1, label: "" },
 ];
 
@@ -100,7 +100,7 @@ const ACADEMIC_LEVEL_MULTIPLIERS: Record<string, { multiplier: number; label: st
 };
 
 const BASE_PAGES = 10;
-const BASE_WORDS = 2750;
+const WORDS_PER_PAGE = 275;
 const PAGE_INCREMENT = 5;
 const PAGE_INCREMENT_MULTIPLIER = 0.1;
 
@@ -125,7 +125,7 @@ function academicLevelMultiplier(level?: string): ScopeMultiplier {
 }
 
 function pageCountMultiplier(pages?: number, wordCount?: number): ScopeMultiplier {
-  const effectivePages = pages ?? (wordCount ? Math.ceil(wordCount / BASE_WORDS) : 0);
+  const effectivePages = Math.max(Number.isFinite(pages) && Number(pages) > 0 ? Number(pages) : 0, Number.isFinite(wordCount) && Number(wordCount) > 0 ? Math.ceil(Number(wordCount) / WORDS_PER_PAGE) : 0);
   if (!effectivePages || effectivePages <= BASE_PAGES) return { multiplier: 1, label: "" };
   const increments = Math.floor((effectivePages - BASE_PAGES) / PAGE_INCREMENT);
   const multiplier = 1 + increments * PAGE_INCREMENT_MULTIPLIER;
@@ -133,7 +133,7 @@ function pageCountMultiplier(pages?: number, wordCount?: number): ScopeMultiplie
 }
 
 function round(value: number) {
-  return Math.round(Number(value) || 0);
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 function selectedServiceTag(input: CostEstimateInput) {
@@ -146,9 +146,9 @@ export function estimateSupportCostLocal(input: CostEstimateInput): CostEstimate
   const basePrice = serviceTag === "assignment" ? 10 : SERVICE_STARTING_PRICES[serviceTag] ?? 0;
 
   // Apply scope multipliers
-  const urgency = urgencyMultiplier(input.deadlineAt);
-  const acad = academicLevelMultiplier(input.academicLevel);
-  const pages = pageCountMultiplier(input.pages, input.wordCount);
+  const urgency = serviceTag === "assignment" ? { multiplier: 1, label: "" } : urgencyMultiplier(input.deadlineAt);
+  const acad = serviceTag === "assignment" ? { multiplier: 1, label: "" } : academicLevelMultiplier(input.academicLevel);
+  const pages = serviceTag === "assignment" ? { multiplier: 1, label: "" } : pageCountMultiplier(input.pages, input.wordCount);
 
   const surcharges: LineItem[] = [];
 
@@ -165,8 +165,8 @@ export function estimateSupportCostLocal(input: CostEstimateInput): CostEstimate
     if (amount > 0) surcharges.push({ item: pages.label, cost: amount });
   }
 
-  const preDiscount = basePrice * urgency.multiplier * acad.multiplier * pages.multiplier;
-  const discount = Math.max(0, round(preDiscount * LAUNCH_DISCOUNT_RATE));
+  const preDiscount = round(basePrice + surcharges.reduce((sum, item) => sum + item.cost, 0));
+  const discount = serviceTag === "assignment" ? 0 : Math.max(0, round(preDiscount * LAUNCH_DISCOUNT_RATE));
   const finalPrice = round(Math.max(0, preDiscount - discount));
 
   const budget = Number(input.budget ?? input.budgetMin ?? 0);
