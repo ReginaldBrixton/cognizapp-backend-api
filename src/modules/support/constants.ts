@@ -8,7 +8,7 @@
 export const MAX_SUPPORT_UPLOAD_FILES = 10;
 export const MAX_SUPPORT_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 export const DEFAULT_SUPPORT_TIMEZONE = "Africa/Accra";
-export const MOBILE_MONEY_ATTEMPT_TTL_SECONDS = 5 * 60;
+export const MOBILE_MONEY_ATTEMPT_TTL_SECONDS = 180;
 export const DELIVERY_PAYMENT_REQUIRED_MESSAGE =
 	"Final payment must be verified before this delivery can be downloaded.";
 

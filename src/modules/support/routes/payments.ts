@@ -225,13 +225,27 @@ export const paymentRoutes = new Elysia()
           AND p.provider = 'paystack'
           AND p.status = 'paystack_pending'
           AND p.verified_at IS NULL
-          AND p.created_at > NOW() - (${MOBILE_MONEY_ATTEMPT_TTL_SECONDS} || ' seconds')::interval
+          
         ORDER BY p.created_at DESC
       `;
+      // Never discard an unresolved authorization just because its UI timer expired.
+      // The customer may have approved it while the browser was backgrounded.
+      const terminalReferences=new Set<string>();
+      for (const previous of pendingPayments) {
+        const previousReference=String(previous.provider_reference ?? previous.transaction_id);
+        const result=await confirmSupportPaystackPayment({reference:previousReference,auth,requestId:params.id});
+        if(result.verified) throw new HttpError(409,"payment_already_verified","Payment already verified. Refresh the payment status.");
+        const status=String((result.paystack?.data as Record<string,unknown> | undefined)?.status ?? "").toLowerCase();
+        if(["failed","abandoned","reversed","timeout"].includes(status)) terminalReferences.add(previousReference);
+        else {
+          const same=String(previous.pending_provider ?? "")===provider && String(previous.pending_phone_hash ?? "")===phoneHash;
+          if(!same || Number(previous.expires_in_seconds)<=0) throw new HttpError(409,"payment_still_pending","An earlier payment is still awaiting confirmation. Check its status before starting another.");
+        }
+      }
       const [pendingPayment] = pendingPayments.filter((payment) => {
         const pendingProvider = String(payment.pending_provider ?? "");
         const pendingPhoneHash = String(payment.pending_phone_hash ?? "");
-        return pendingProvider === provider && pendingPhoneHash === phoneHash;
+        return pendingProvider === provider && pendingPhoneHash === phoneHash && Number(payment.expires_in_seconds)>0 && !terminalReferences.has(String(payment.provider_reference ?? payment.transaction_id));
       });
       if (pendingPayment) {
         const reference = String(pendingPayment.provider_reference ?? pendingPayment.transaction_id);
@@ -286,7 +300,7 @@ export const paymentRoutes = new Elysia()
       const stalePendingPayments = pendingPayments.filter((payment) => {
         const pendingProvider = String(payment.pending_provider ?? "");
         const pendingPhoneHash = String(payment.pending_phone_hash ?? "");
-        return pendingProvider !== provider || pendingPhoneHash !== phoneHash;
+        return terminalReferences.has(String(payment.provider_reference ?? payment.transaction_id));
       });
       if (stalePendingPayments.length > 0) {
         await db.begin(async (tx) => {
@@ -353,11 +367,8 @@ export const paymentRoutes = new Elysia()
         mobileMoneyProvider: provider,
       };
 
-      // MTN/AirtelTigo: Use Paystack hosted checkout for the full OTP → PIN flow.
-      // The Charge API returns "pay_offline" for MTN/ATL (phone-only auth, no OTP).
-      // Hosted checkout supports the OTP code → PIN authorization flow the user expects.
-      // Telecel (vod) keeps the Charge API for its voucher code system.
-      const useHostedCheckout = provider === "mtn" || provider === "atl";
+      // Ghana MoMo Charge API supports MTN, AT and Telecel phone authorization.
+      const useHostedCheckout = false;
       const callbackUrl = normalizePublicCallbackUrl(
         body.callbackUrl ?? "",
       );
@@ -459,7 +470,6 @@ export const paymentRoutes = new Elysia()
         requestId: String(supportRequest.id),
         reference,
         status: chargeStatus,
-        displayText,
         provider,
       });
 
@@ -744,7 +754,6 @@ export const paymentRoutes = new Elysia()
           requestId: params.id,
           reference,
           status: chargeStatus,
-          displayText,
           message: result.message,
         });
 
@@ -850,6 +859,13 @@ export const paymentRoutes = new Elysia()
         throw new HttpError(409, "payment_already_verified", "This payment has already been verified");
       }
 
+      const verification = await confirmSupportPaystackPayment({reference,auth,requestId:params.id});
+      if(verification.verified) throw new HttpError(409,"payment_already_verified","Payment was verified. Refresh the payment status.");
+      const gatewayStatus=String((verification.paystack?.data as Record<string,unknown> | undefined)?.status ?? "").toLowerCase();
+      if(!["failed","abandoned","reversed","timeout"].includes(gatewayStatus)) {
+        throw new HttpError(409,"payment_still_pending","Payment is still awaiting confirmation. Check again after the authorization window ends.");
+      }
+
       const resetStatus = retryablePaymentStatusAfterCancel(String(payment.payment_type ?? ""), payment);
       const [updatedPayment, updatedRequest] = await db.begin(async (tx) => {
         const [nextPayment] = await tx`
@@ -868,6 +884,7 @@ export const paymentRoutes = new Elysia()
             updated_at = NOW()
           WHERE id = ${params.id}::uuid
             AND user_key_id = ${auth.userId}
+            AND payment_transaction_id = ${reference}
             AND payment_status IN ('pending', 'paystack_pending', 'deposit_pending_verification', 'final_payment_pending_verification', 'deposit_paid')
           RETURNING *
         `;
