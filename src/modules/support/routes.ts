@@ -147,7 +147,6 @@ export const supportRoutes = new Elysia({
   .use(miscRoutes)
   .use(codesRoutes)
   .use(clientRequestRoutes)
-  .use(clientLiveRoutes)
   .use(paymentRoutes)
   .use(fileRoutes)
   .use(quoteRoutes)
@@ -156,3 +155,7 @@ export const supportRoutes = new Elysia({
   .use(previewRoutes)
   .use(milestoneRoutes)
   .use(revisionRoutes);
+
+// Register the independent live stream without expanding the exported router's
+// already-large inferred route schema throughout the application type graph.
+supportRoutes.use(clientLiveRoutes);
